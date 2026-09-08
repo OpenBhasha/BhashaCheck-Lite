@@ -237,10 +237,20 @@ main > section { flex: 1; min-height: 0; }
   overflow: hidden;
   flex: 0 0 auto; /* never let the flex column squash rows (this was the "segments not loading" bug) */
 }
-.seg-row.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-.seg-row.playing { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .seg-row.verified { border-color: #bfe6cf; }
 .seg-row.verified .seg-bar { background: #f2fbf5; }
+
+/* The active segment (clicked anywhere in it, its region clicked, or playback
+   is inside it). Highlight reads across the bar, transcription and preview. */
+.seg-row.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.seg-row.is-active .seg-bar { background: var(--accent-soft); }
+.seg-row.is-active .seg-panes { background: #f7f4ff; }
+.seg-row.is-active .pane-label { background: #efeaff; color: var(--accent-ink); }
+.seg-row.is-active .rsml-output,
+.seg-row.is-active .rsml-plain { background: #fbfaff; }
 .seg-bar {
   display: flex;
   align-items: center;

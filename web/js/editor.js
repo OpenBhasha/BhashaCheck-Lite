@@ -35,8 +35,7 @@ let rows = new Map(); // segId -> Row
 let io = null;
 let sweepTimer = null;
 let keyHandler = null;
-let selectedId = null;
-let playingRowId = null;
+let activeId = null; // the one highlighted "active" segment (click / region / playback)
 let lastAutoScroll = 0;
 
 // Row = { seg, el, host, output, plainEl, textarea, annotator, active, els }
@@ -90,7 +89,7 @@ export function unmountEditor() {
   keyHandler = null;
   if (io) io.disconnect();
   io = null;
-  playingRowId = null;
+  activeId = null;
   for (const row of rows.values()) {
     syncOne(row);
     try {
@@ -174,44 +173,47 @@ function updateScrubHead(t) {
   head.style.left = `${Math.min(100, Math.max(0, f * 100))}%`;
 }
 
-// Highlight the segment under the playhead and, while playing, keep it in view.
+// The single "active segment" highlight. Set by a click anywhere in a row, a
+// click on its waveform region, or playback moving into it.
+function setActive(id, { scroll = false, seek = false } = {}) {
+  if (!rows.has(id)) return;
+  if (id !== activeId) {
+    activeId = id;
+    for (const [rid, r] of rows) r.el.classList.toggle("is-active", rid === id);
+    if (wf.isReady()) wf.highlightRegion(id);
+    wf.isReady() && wf.setLoop(document.getElementById("wf-loop")?.classList.contains("active") ? id : null);
+  }
+  const rec = rows.get(id);
+  if (seek && wf.isReady()) {
+    const seg = getState().segments.find((x) => x.id === id);
+    if (seg) wf.seekTo(seg.start);
+  }
+  if (scroll) {
+    const listEl = document.getElementById("seg-list");
+    const ae = document.activeElement;
+    const editing = listEl.contains(ae) && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT");
+    const now = performance.now();
+    if (!editing && now - lastAutoScroll > 350) {
+      const rb = rec.el.getBoundingClientRect();
+      const lb = listEl.getBoundingClientRect();
+      if (rb.top < lb.top || rb.bottom > lb.bottom) {
+        rec.el.scrollIntoView({ block: "center", behavior: "smooth" });
+        lastAutoScroll = now;
+      }
+    }
+  }
+}
+
+// While audio plays, keep the segment under the playhead active and in view.
 function followPlayback(t) {
   const segs = getState().segments;
-  let cur = null;
   for (const seg of segs) {
     if (t >= seg.start && t < seg.end) {
-      cur = seg;
-      break;
+      if (seg.id !== activeId) setActive(seg.id, { scroll: wf.isPlaying() });
+      return;
     }
   }
-  const id = cur ? cur.id : null;
-  if (id === playingRowId) return;
-
-  if (playingRowId) {
-    const old = rows.get(playingRowId);
-    if (old) old.el.classList.remove("playing");
-  }
-  playingRowId = id;
-  if (!id) return;
-
-  const rec = rows.get(id);
-  if (!rec) return;
-  rec.el.classList.add("playing");
-  if (wf.isReady()) wf.highlightRegion(id);
-
-  const listEl = document.getElementById("seg-list");
-  const ae = document.activeElement;
-  const editingInList = listEl.contains(ae) && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT");
-  const now = performance.now();
-  if (wf.isPlaying() && !editingInList && now - lastAutoScroll > 400) {
-    const rb = rec.el.getBoundingClientRect();
-    const lb = listEl.getBoundingClientRect();
-    const visible = rb.top >= lb.top && rb.bottom <= lb.bottom;
-    if (!visible) {
-      rec.el.scrollIntoView({ block: "center", behavior: "smooth" });
-      lastAutoScroll = now;
-    }
-  }
+  // in a gap between segments: leave the current active row as-is
 }
 
 // -------------------------------------------------------------- rows ----
@@ -264,15 +266,18 @@ function buildRow(seg) {
 
   setCollapsed(rec); // start collapsed; IntersectionObserver upgrades it
 
-  els.check.onclick = (e) => e.stopPropagation();
   els.check.onchange = () => {
     seg.verified = els.check.checked;
     row.classList.toggle("verified", seg.verified);
     updateVerifyCount();
     scheduleSave();
   };
+  // A click anywhere in the row (bar, times, textarea, preview, buttons) marks
+  // it the active segment. No scroll / no seek here, so editing is undisturbed.
+  row.addEventListener("pointerdown", () => setActive(seg.id));
+  // Clicking the empty part of the bar additionally jumps the playhead there.
   row.querySelector(".seg-bar").addEventListener("click", (e) => {
-    if (e.target.closest("button") || e.target.closest("input")) return;
+    if (e.target.closest("button") || e.target.closest("input") || e.target.closest(".time-group")) return;
     selectRow(seg.id, true);
   });
   els.play.onclick = () => {
@@ -336,13 +341,14 @@ function activate(id, { focus }) {
   rec.plainEl = null;
   rec.textarea = ta;
   rec.active = true;
-  rec.el.classList.add("active");
+  rec.el.classList.add("cm-live");
 
-  // disableCodeMirror keeps this a real <textarea>: native caret, native
-  // composition/IME, correct behaviour for Indic and other complex scripts.
-  // The annotator still renders the live preview from the textarea's input.
+  // Hand the textarea + output straight to the rsml library and let it do its
+  // full thing (CodeMirror editor, syntax highlighting, autocomplete, inline
+  // validation, live preview). If it throws, fall back to a plain textarea that
+  // at least mirrors its text into the preview.
   try {
-    rec.annotator = new RSMLAnnotator({ textarea: ta, output: rec.output, disableCodeMirror: true });
+    rec.annotator = new RSMLAnnotator({ textarea: ta, output: rec.output });
   } catch (err) {
     console.warn("RSMLAnnotator failed, plain textarea fallback", err);
     rec.annotator = null;
@@ -379,7 +385,7 @@ function deactivate(id) {
   rec.annotator = null;
   rec.textarea = null;
   rec.active = false;
-  rec.el.classList.remove("active");
+  rec.el.classList.remove("cm-live");
   setCollapsed(rec);
 }
 
@@ -389,7 +395,7 @@ function enforceCap(keepId) {
   const list = document.getElementById("seg-list");
   const vr = list.getBoundingClientRect();
   const cands = actives
-    .filter((r) => r.seg.id !== keepId && r.seg.id !== selectedId && !r.el.contains(document.activeElement))
+    .filter((r) => r.seg.id !== keepId && r.seg.id !== activeId && !r.el.contains(document.activeElement))
     .map((r) => ({ r, d: distFromViewport(r.el, vr) }))
     .sort((a, b) => b.d - a.d);
   while ([...rows.values()].filter((r) => r.active).length >= MAX_ACTIVE && cands.length) {
@@ -464,19 +470,11 @@ function reindex() {
   if (n) n.textContent = s.segments.length;
 }
 
+// Full "go to this segment": highlight it, mount its editor, scroll it into
+// view, and optionally move the playhead to its start.
 function selectRow(id, seek) {
-  selectedId = id;
-  for (const [rid, r] of rows) r.el.classList.toggle("selected", rid === id);
-  const r = rows.get(id);
-  if (r) r.el.scrollIntoView({ block: "nearest", behavior: "smooth" });
   activate(id, { focus: false });
-  if (wf.isReady()) {
-    wf.highlightRegion(id);
-    const seg = getState().segments.find((x) => x.id === id);
-    if (seek && seg) wf.seekTo(seg.start);
-    const loopOn = document.getElementById("wf-loop")?.classList.contains("active");
-    wf.setLoop(loopOn ? id : null);
-  }
+  setActive(id, { scroll: true, seek });
 }
 
 // ---------------------------------------------------------- segments ----
@@ -526,7 +524,7 @@ function removeSegment(id) {
     r.el.remove();
     rows.delete(id);
   }
-  if (playingRowId === id) playingRowId = null;
+  if (activeId === id) activeId = null;
   s.segments = s.segments.filter((x) => x.id !== id);
   reindex();
   updateVerifyCount();
@@ -669,7 +667,7 @@ function wireWaveformControls() {
   if (loop)
     loop.onclick = () => {
       loop.classList.toggle("active");
-      wf.setLoop(loop.classList.contains("active") ? selectedId : null);
+      wf.setLoop(loop.classList.contains("active") ? activeId : null);
     };
 
   // Dedicated scrub strip: drag anywhere on it to move the playhead, never
@@ -791,7 +789,7 @@ function sweep() {
   }
   for (const rec of rows.values()) {
     if (!rec.active) continue;
-    if (rec.seg.id === selectedId) continue;
+    if (rec.seg.id === activeId) continue;
     if (rec.el.contains(document.activeElement)) continue;
     if (distFromViewport(rec.el, vr) > KEEP_DIST) deactivate(rec.seg.id);
   }
