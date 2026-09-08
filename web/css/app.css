@@ -283,6 +283,19 @@ main > section { flex: 1; min-height: 0; }
 }
 .seg-dur { font-size: 11px; color: var(--muted); font-family: var(--mono); }
 
+.seg-lang {
+  font-size: 11px;
+  padding: 2px 4px;
+  height: 26px;
+  max-width: 120px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+}
+.lang-bulk-wrap { display: inline-flex; align-items: center; gap: 6px; }
+.lang-bulk-wrap .form-select { width: auto; max-width: 150px; }
+
 .time-group {
   display: inline-flex;
   align-items: center;

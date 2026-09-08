@@ -16,8 +16,8 @@ const newState = () => ({
   updatedAt: Date.now(),
   audioMeta: null, // { name, type, size, duration, hasProcessed }
   stageStatus: { musicRemoval: "pending", segmentation: "pending", diarization: "pending" },
-  transcription: { language: "", model: "whisper", apiKey: "" },
-  segments: [], // { id, start, end, rsml, speaker, status, selected }
+  transcription: { model: "whisper", apiKey: "" }, // language is per-segment now
+  segments: [], // { id, start, end, rsml, speaker, status, verified, language }
   ui: { screen: "upload", zoom: 40, speed: 1 },
 });
 
@@ -187,7 +187,8 @@ export async function importSrt(srtFile) {
     rsml: c.text,
     speaker: null,
     status: c.text.trim() ? "done" : "empty",
-    selected: false,
+    verified: false,
+    language: "",
   }));
   await saveNow();
   toast(`Imported ${cues.length} segments from ${srtFile.name}`, "success");
@@ -264,6 +265,16 @@ async function rehydrate() {
   if (!saved) return false;
   state = Object.assign(newState(), saved);
   state.ui = Object.assign(newState().ui, saved.ui || {});
+  state.transcription = Object.assign(newState().transcription, saved.transcription || {});
+
+  // Migrate: language used to be one universal setting; it is per-segment now.
+  const legacyLang = (saved.transcription && saved.transcription.language) || "";
+  for (const seg of state.segments || []) {
+    if (seg.language == null) seg.language = legacyLang;
+    if (seg.verified == null) seg.verified = false;
+    delete seg.selected;
+  }
+  delete state.transcription.language;
 
   if (state.audioMeta) {
     const blob =

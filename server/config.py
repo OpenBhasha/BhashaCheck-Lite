@@ -41,6 +41,12 @@ class Settings:
     conformer_model_path: str = os.environ.get("CONFORMER_MODEL_PATH", "")
     indic_conformer_model_path: str = os.environ.get("INDIC_CONFORMER_MODEL_PATH", "")
 
+    # Bodhan AI Indic-Transcribe (gated HF model; needs HUGGINGFACE_TOKEN).
+    # Use ...-core for higher accuracy, ...-flex for mixed / Romanised scripts.
+    indic_transcribe_model: str = os.environ.get(
+        "INDIC_TRANSCRIBE_MODEL", "bodhan-ai/indic-transcribe-flex"
+    )
+
     # Optional cloud ASR - leave blank to keep the provider stubbed.
     sarvam_api_key: str = os.environ.get("SARVAM_API_KEY", "")
     sarvam_model: str = os.environ.get("SARVAM_MODEL", "saarika:v2")

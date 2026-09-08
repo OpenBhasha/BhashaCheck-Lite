@@ -1,0 +1,10 @@
+# Optional. Needed only for the "Indic-Transcribe (Bodhan AI)" provider.
+# The model itself is gated: accept the Indic Open Model License at
+# https://huggingface.co/bodhan-ai/indic-transcribe-flex and set
+# HUGGINGFACE_TOKEN in v2/server/.env. The ~5 GB weights download on first use.
+#
+#   pip install -r requirements.txt -r requirements-indic.txt
+#
+# torch / torchaudio / soundfile / huggingface-hub already come from requirements.txt.
+transformers>=4.44
+sentencepiece>=0.2.0

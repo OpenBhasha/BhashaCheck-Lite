@@ -48,6 +48,10 @@ To host the page yourself instead, set `SERVE_WEB=false` and open
 | Diarization | pyannote community-1 | **needs** `HUGGINGFACE_TOKEN` + accepted model terms, else reported as "not configured" |
 | Transcription | **Whisper (local)** | the one fully-working ASR provider |
 
+Transcription **language is set per segment** in the editor (each row has its
+own selector, plus a "Set all languages" bulk control). The Stages screen's
+Transcription card only carries the model + API key.
+
 ## Extra ASR providers (wired but inert until configured)
 
 They appear in the model dropdown and return a friendly *"not configured"*
@@ -55,6 +59,7 @@ banner until set up in `server/.env`:
 
 | Model | Enable with |
 |---|---|
+| Indic-Transcribe (Bodhan AI) | `pip install -r requirements-indic.txt`, accept the license at [hf.co/bodhan-ai/indic-transcribe-flex](https://huggingface.co/bodhan-ai/indic-transcribe-flex), set `HUGGINGFACE_TOKEN`. ~1B params, 27 Indian languages, NeMo-trained. `INDIC_TRANSCRIBE_MODEL` picks the `-flex` / `-core` variant. ~5 GB download on first use. |
 | Wav2Vec2 | `WAV2VEC2_MODEL=<hf-id-or-path>` + `pip install transformers` |
 | Conformer | `CONFORMER_MODEL_PATH=<.nemo-or-name>` + `pip install -r requirements-nemo.txt` |
 | IndicConformer | `INDIC_CONFORMER_MODEL_PATH=<.nemo>` + `pip install -r requirements-nemo.txt` |
