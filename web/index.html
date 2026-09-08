@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BhashaCheck - RSML Transcription Workbench</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css"
+    />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body data-screen="upload">
+    <header class="app-header">
+      <div class="brand">
+        <i class="bi bi-soundwave"></i>
+        <div>
+          <strong>BhashaCheck</strong>
+          <div class="tagline">Upload, clean, segment, RSML transcribe, SRT</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <span id="save-indicator" class="save-indicator"></span>
+        <button id="open-settings" class="icon-btn" title="Settings" aria-label="Settings">
+          <i class="bi bi-gear"></i>
+        </button>
+      </div>
+    </header>
+
+    <div id="service-banner" class="service-banner" hidden></div>
+
+    <main>
+      <!-- ============================ UPLOAD ============================ -->
+      <section id="screen-upload">
+        <div class="upload-card">
+          <h1>Start a new transcription</h1>
+          <p class="muted">
+            Everything runs locally and is saved in your browser, so you will not lose progress on reload.
+          </p>
+
+          <div id="dropzone" class="dropzone">
+            <i class="bi bi-cloud-arrow-up"></i>
+            <div class="dz-title">Drop an audio file here, or click to choose</div>
+            <div class="dz-sub">wav, mp3, m4a, flac, ogg</div>
+          </div>
+
+          <input type="file" id="audio-input" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg,.opus,.webm" hidden />
+          <input type="file" id="srt-input" accept=".srt,text/plain" hidden />
+        </div>
+      </section>
+
+      <!-- ============================ STAGES ============================ -->
+      <section id="screen-stages" hidden>
+        <div class="screen-inner">
+          <div class="screen-head">
+            <button id="stages-back-btn" class="btn btn-sm btn-link"><i class="bi bi-arrow-left"></i> Upload</button>
+            <h2>Processing stages</h2>
+            <p class="muted">Run or skip each stage, then open the editor to transcribe segment by segment.</p>
+          </div>
+
+          <div id="stages-list" class="stages-list"></div>
+
+          <div class="stages-alt">
+            <button id="stages-upload-srt" class="btn btn-outline-primary btn-sm">
+              <i class="bi bi-filetype-txt"></i> Upload an SRT instead
+            </button>
+            <button id="stages-skip-all" class="btn btn-outline-secondary btn-sm">
+              Skip all stages
+            </button>
+            <span class="muted small">SRT import fills the segments and jumps straight to the editor.</span>
+          </div>
+
+          <div class="card config-card">
+            <div class="card-body">
+              <h3><i class="bi bi-sliders"></i> Transcription</h3>
+              <p class="muted small">
+                Configured here, run per-segment in the editor. Local models and cloud APIs both supported.
+              </p>
+              <div id="transcription-config"></div>
+            </div>
+          </div>
+
+          <div class="screen-foot">
+            <button id="open-editor-btn" class="btn btn-primary btn-lg">
+              Open editor <i class="bi bi-arrow-right"></i>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================ EDITOR ============================ -->
+      <section id="screen-editor" hidden>
+        <div class="editor-toolbar">
+          <button id="editor-back-btn" class="btn btn-sm btn-link"><i class="bi bi-arrow-left"></i> Stages</button>
+          <span class="seg-count"><span id="seg-count-n">0</span> segments</span>
+          <label class="verify-toggle">
+            <input type="checkbox" id="verify-all" />
+            <span><span id="verify-count">0 / 0</span> verified</span>
+          </label>
+          <span class="flex-spacer"></span>
+          <button id="add-seg-btn" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-plus-lg"></i> Add segment at playhead
+          </button>
+        </div>
+
+        <p id="editor-empty" class="editor-empty" hidden>
+          No segments yet. Move the playhead and use "Add segment", or go back and run Segmentation.
+        </p>
+
+        <div id="seg-list" class="seg-list"></div>
+
+        <div id="transcribe-all-progress" class="bar" hidden>
+          <div class="bar-fill"></div><span class="bar-text"></span>
+        </div>
+
+        <div class="editor-bottom">
+          <div id="waveform-note" class="waveform-note" hidden>
+            No audio loaded. Editing and SRT export still work.
+          </div>
+          <div id="waveform-panel" class="waveform-panel" hidden>
+            <div id="wf-controls" class="wf-controls">
+              <button id="wf-play" class="btn btn-sm btn-primary"><i class="bi bi-play-fill"></i></button>
+              <button id="wf-stop" class="btn btn-sm btn-outline-secondary"><i class="bi bi-stop-fill"></i></button>
+              <span id="wf-clock" class="wf-clock">00:00</span>
+              <button id="wf-loop" class="btn btn-sm btn-outline-secondary" title="Loop selected segment"><i class="bi bi-repeat"></i></button>
+              <label class="wf-inline">Scale
+                <input id="wf-zoom" type="range" min="10" max="300" value="40" class="form-range" />
+              </label>
+            </div>
+            <div id="wf-scrub" class="wf-scrub" title="Drag anywhere here to move the playhead">
+              <div id="wf-scrub-head" class="wf-scrub-head"></div>
+            </div>
+            <div id="waveform" class="waveform"></div>
+          </div>
+
+          <div class="editor-foot">
+            <button id="transcribe-all-btn" class="btn btn-sm btn-outline-primary">
+              <i class="bi bi-lightning-charge"></i> Transcribe all
+            </button>
+            <span class="flex-spacer"></span>
+            <button id="export-srt-btn" class="btn btn-sm btn-success">
+              <i class="bi bi-download"></i> Export SRT
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div id="settings-backdrop" class="drawer-backdrop" hidden></div>
+    <aside id="settings-drawer" class="drawer" hidden aria-label="Settings">
+      <div class="drawer-head">
+        <strong>Settings</strong>
+        <button id="close-settings" class="icon-btn" aria-label="Close settings"><i class="bi bi-x-lg"></i></button>
+      </div>
+      <div class="drawer-body">
+        <section>
+          <h4>Playback</h4>
+          <label class="drawer-row">
+            Speed
+            <select id="set-speed" class="form-select form-select-sm">
+              <option value="0.5">0.5x</option><option value="0.75">0.75x</option>
+              <option value="1" selected>1x</option><option value="1.25">1.25x</option>
+              <option value="1.5">1.5x</option><option value="2">2x</option>
+            </select>
+          </label>
+        </section>
+        <section>
+          <h4>Keyboard shortcuts</h4>
+          <dl class="shortcuts">
+            <dt><kbd>Shift</kbd> + <kbd>Space</kbd></dt>
+            <dd>Play / pause</dd>
+          </dl>
+        </section>
+        <section>
+          <h4>Project</h4>
+          <button id="drawer-startover" class="btn btn-sm btn-outline-danger">Start over</button>
+          <p class="muted small">Deletes this project (segments, audio, progress) from the browser.</p>
+        </section>
+      </div>
+    </aside>
+
+    <div id="toast-area" class="toast-area"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

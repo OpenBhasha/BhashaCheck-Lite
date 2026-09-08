@@ -1,0 +1,8 @@
+# Optional. Only needed for the Conformer / IndicConformer transcription
+# providers (CONFORMER_MODEL_PATH / INDIC_CONFORMER_MODEL_PATH set). Large
+# install with many native/CUDA dependencies.
+#
+#   pip install -r requirements.txt -r requirements-nemo.txt
+#
+# Verify NeMo's and any specific checkpoint's license before production use.
+nemo_toolkit[asr]==2.0.0
