@@ -232,6 +232,7 @@ function buildRow(seg) {
       <div class="time-group" data-edge="end">${timeInputs(seg.end)}</div>
       <span class="seg-dur"></span>
       <span class="flex-spacer"></span>
+      <select class="seg-lang" title="Language for this segment">${langOptions(seg.language || "")}</select>
       <button class="btn btn-sm btn-outline-primary seg-play" title="Play this segment"><i class="bi bi-play-fill"></i></button>
       <button class="btn btn-sm btn-primary seg-transcribe">Transcribe</button>
       <span class="seg-status" data-status="${seg.status || "empty"}"></span>
@@ -256,6 +257,7 @@ function buildRow(seg) {
     status: row.querySelector(".seg-status"),
     transcribe: row.querySelector(".seg-transcribe"),
     play: row.querySelector(".seg-play"),
+    lang: row.querySelector(".seg-lang"),
     starts: row.querySelectorAll('.time-group[data-edge="start"] input'),
     ends: row.querySelectorAll('.time-group[data-edge="end"] input'),
   };
@@ -277,9 +279,13 @@ function buildRow(seg) {
   row.addEventListener("pointerdown", () => setActive(seg.id));
   // Clicking the empty part of the bar additionally jumps the playhead there.
   row.querySelector(".seg-bar").addEventListener("click", (e) => {
-    if (e.target.closest("button") || e.target.closest("input") || e.target.closest(".time-group")) return;
+    if (e.target.closest("button, input, select, .time-group")) return;
     selectRow(seg.id, true);
   });
+  els.lang.onchange = () => {
+    seg.language = els.lang.value;
+    scheduleSave();
+  };
   els.play.onclick = () => {
     if (!wf.isReady()) return;
     wf.toggleSegment(seg.id, (playing) => setPlayButton(seg.id, playing));
@@ -413,6 +419,18 @@ function timeInputs(sec) {
   );
 }
 
+function langOptions(selectedCode) {
+  const langs = runtime.languages && runtime.languages.length ? runtime.languages : [{ code: "", label: "Auto" }];
+  return langs
+    .map(
+      (l) =>
+        `<option value="${escapeHtml(l.code)}"${l.code === (selectedCode || "") ? " selected" : ""}>${escapeHtml(
+          l.code === "" ? "Auto" : l.label
+        )}</option>`
+    )
+    .join("");
+}
+
 function readTimeInputs(inputs) {
   const [h, m, s, ms] = [...inputs].map((i) => parseInt(i.value || "0", 10) || 0);
   return h * 3600 + m * 60 + s + ms / 1000;
@@ -490,6 +508,7 @@ function addSegment(start, end) {
     speaker: null,
     status: "empty",
     verified: false,
+    language: document.getElementById("lang-bulk")?.value || "",
   };
   s.segments.push(seg);
   s.segments.sort((a, b) => a.start - b.start);
@@ -548,7 +567,7 @@ async function transcribeOne(id) {
   try {
     const clip = wav.sliceToWav(seg.start, seg.end);
     const res = await api.transcribe(clip, {
-      language: s.transcription.language,
+      language: seg.language || "",
       model: s.transcription.model,
       apiKey: s.transcription.apiKey,
     });
@@ -617,6 +636,12 @@ function setAllVerified(v) {
   scheduleSave();
 }
 
+function setAllLanguages(code) {
+  for (const seg of getState().segments) seg.language = code;
+  for (const r of rows.values()) if (r.els.lang) r.els.lang.value = code;
+  scheduleSave();
+}
+
 // ------------------------------------------------------------- chrome ----
 
 function wireChrome() {
@@ -626,6 +651,14 @@ function wireChrome() {
 
   const all = document.getElementById("verify-all");
   if (all) all.onchange = () => setAllVerified(all.checked);
+
+  const lb = document.getElementById("lang-bulk");
+  if (lb) lb.innerHTML = langOptions(lb.value || "");
+  bind("lang-apply", () => {
+    const lb2 = document.getElementById("lang-bulk");
+    if (lb2 && confirm(`Set the language of all ${getState().segments.length} segments to "${lb2.options[lb2.selectedIndex]?.text || "Auto"}"?`))
+      setAllLanguages(lb2.value);
+  });
 
   bind("export-srt-btn", () => {
     const s = getState();

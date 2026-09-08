@@ -123,10 +123,6 @@ function renderTranscriptionConfig() {
   const host = document.getElementById("transcription-config");
   if (!host) return;
 
-  const langOpts = (runtime.languages || [{ code: "", label: "Auto-detect" }])
-    .map((l) => `<option value="${l.code}" ${s.transcription.language === l.code ? "selected" : ""}>${escapeHtml(l.label)}</option>`)
-    .join("");
-
   const models = runtime.models.length
     ? runtime.models
     : [{ id: "whisper", label: "Whisper (local)", kind: "local", available: true, note: "" }];
@@ -142,25 +138,17 @@ function renderTranscriptionConfig() {
 
   host.innerHTML = `
     <div class="row g-3">
-      <div class="col-sm-4">
-        <label class="form-label">Language</label>
-        <select class="form-select form-select-sm" id="tc-language">${langOpts}</select>
-      </div>
-      <div class="col-sm-5">
+      <div class="col-sm-7">
         <label class="form-label">Model</label>
         <select class="form-select form-select-sm" id="tc-model">${modelOpts}</select>
-        <div class="form-text">${escapeHtml((selected && selected.note) || "")}</div>
+        <div class="form-text">${escapeHtml((selected && selected.note) || "")} &nbsp;&middot;&nbsp; language is set per segment in the editor</div>
       </div>
-      <div class="col-sm-3" ${showKey ? "" : "hidden"} id="tc-key-wrap">
+      <div class="col-sm-5" ${showKey ? "" : "hidden"} id="tc-key-wrap">
         <label class="form-label">API key</label>
         <input type="password" class="form-control form-control-sm" id="tc-key" placeholder="paste key" value="${escapeHtml(s.transcription.apiKey || "")}" />
       </div>
     </div>`;
 
-  host.querySelector("#tc-language").onchange = (e) => {
-    s.transcription.language = e.target.value;
-    scheduleSave();
-  };
   host.querySelector("#tc-model").onchange = (e) => {
     s.transcription.model = e.target.value;
     renderTranscriptionConfig();
@@ -225,7 +213,8 @@ async function runSegmentation() {
     rsml: "",
     speaker: null,
     status: "empty",
-    selected: false,
+    verified: false,
+    language: "",
   }));
   toast(`Found ${s.segments.length} speech segments.`, "success");
 }
@@ -264,7 +253,8 @@ async function runDiarization() {
       rsml: "",
       speaker: t.speaker,
       status: "empty",
-      selected: false,
+      verified: false,
+      language: "",
     }));
     toast(`Created ${s.segments.length} segments from speaker turns.`, "success");
   }

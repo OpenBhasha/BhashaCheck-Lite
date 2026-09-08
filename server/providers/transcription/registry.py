@@ -7,12 +7,14 @@ from providers.transcription.base import NotConfiguredError, TranscriptionProvid
 from providers.transcription.conformer import ConformerProvider
 from providers.transcription.gnani import GnaniProvider
 from providers.transcription.indic_conformer import IndicConformerProvider
+from providers.transcription.indic_transcribe import IndicTranscribeProvider
 from providers.transcription.sarvam import SarvamProvider
 from providers.transcription.wav2vec2 import Wav2Vec2Provider
 from providers.transcription.whisper_asr import WhisperProvider
 
 _PROVIDERS: list[TranscriptionProvider] = [
     WhisperProvider(),
+    IndicTranscribeProvider(),
     Wav2Vec2Provider(),
     ConformerProvider(),
     IndicConformerProvider(),

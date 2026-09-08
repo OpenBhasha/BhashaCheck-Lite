@@ -30,19 +30,32 @@ from providers.transcription.registry import get_provider, list_models
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
+# Auto-detect + English + the 22 scheduled Indian languages. Whisper ignores
+# codes it does not know; Indic-Transcribe / IndicConformer use the full set.
 LANGUAGES = [
     {"code": "", "label": "Auto-detect"},
     {"code": "en", "label": "English"},
-    {"code": "hi", "label": "Hindi"},
-    {"code": "te", "label": "Telugu"},
-    {"code": "ta", "label": "Tamil"},
-    {"code": "kn", "label": "Kannada"},
-    {"code": "ml", "label": "Malayalam"},
+    {"code": "as", "label": "Assamese"},
     {"code": "bn", "label": "Bengali"},
+    {"code": "brx", "label": "Bodo"},
+    {"code": "doi", "label": "Dogri"},
     {"code": "gu", "label": "Gujarati"},
+    {"code": "hi", "label": "Hindi"},
+    {"code": "kn", "label": "Kannada"},
+    {"code": "ks", "label": "Kashmiri"},
+    {"code": "kok", "label": "Konkani"},
+    {"code": "mai", "label": "Maithili"},
+    {"code": "ml", "label": "Malayalam"},
+    {"code": "mni", "label": "Manipuri (Meitei)"},
     {"code": "mr", "label": "Marathi"},
-    {"code": "pa", "label": "Punjabi"},
+    {"code": "ne", "label": "Nepali"},
     {"code": "or", "label": "Odia"},
+    {"code": "pa", "label": "Punjabi"},
+    {"code": "sa", "label": "Sanskrit"},
+    {"code": "sat", "label": "Santali"},
+    {"code": "sd", "label": "Sindhi"},
+    {"code": "ta", "label": "Tamil"},
+    {"code": "te", "label": "Telugu"},
     {"code": "ur", "label": "Urdu"},
 ]
 
