@@ -1,19 +1,18 @@
-# BhashaCheck - single-page RSML transcription workbench
+# BhashaCheck Lite - single-page RSML transcription workbench
 
 A local, no-login, no-database tool: one HTML page + a thin stateless FastAPI
 ML service. It walks you through
 
-**upload → music removal → segmentation → (optional) diarization → per-segment
-RSML transcription → SRT export**
+**upload -> music removal -> segmentation -> (optional) diarization -> per-segment
+RSML transcription -> SRT export**
 
 Every transcript field is bound to the [`rsml`](https://www.npmjs.com/package/rsml)
 library (`RSMLAnnotator`), with a live preview beside it. All progress is saved
 in the browser's IndexedDB, so a reload never loses work.
 
 ```
-v2/
-  server/   FastAPI ML service (stateless endpoints; also serves the page)
-  web/      the single-page app (index.html + ES modules, Bootstrap 5)
+server/   FastAPI ML service (stateless endpoints; also serves the page)
+web/      the single-page app (index.html + ES modules, Bootstrap 5)
 ```
 
 ## Prerequisites
@@ -25,7 +24,7 @@ v2/
 ## Run
 
 ```bash
-cd v2/server
+cd server
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -38,7 +37,7 @@ Open **http://localhost:8000/**. The FastAPI app serves the frontend at `/`
 model and the Silero VAD model.
 
 To host the page yourself instead, set `SERVE_WEB=false` and open
-`v2/web/index.html` - it falls back to calling the API at `http://localhost:8000`.
+`web/index.html` - it falls back to calling the API at `http://localhost:8000`.
 
 ## What works out of the box
 
@@ -52,7 +51,7 @@ To host the page yourself instead, set `SERVE_WEB=false` and open
 ## Extra ASR providers (wired but inert until configured)
 
 They appear in the model dropdown and return a friendly *"not configured"*
-banner until set up in `v2/server/.env`:
+banner until set up in `server/.env`:
 
 | Model | Enable with |
 |---|---|
@@ -62,16 +61,16 @@ banner until set up in `v2/server/.env`:
 | Sarvam AI | `SARVAM_API_KEY=<key>` (or paste a key into the Transcription card) |
 | Gnani.ai | `GNANI_API_KEY=<key>` + `GNANI_API_URL=<your contract endpoint>` |
 
-## API (all stateless, multipart in → JSON/WAV out)
+## API (all stateless, multipart in -> JSON/WAV out)
 
-| Method | Path | Body → Response |
+| Method | Path | Body -> Response |
 |---|---|---|
 | GET | `/api/health` | device, ffmpeg + diarization availability |
 | GET | `/api/models` | ASR dropdown metadata + language list |
-| POST | `/api/music-removal` | `file` → `audio/wav` (vocals) |
-| POST | `/api/vad` | `file` → `{segments:[{start,end}], duration}` |
-| POST | `/api/diarize` | `file` → `{turns:[{start,end,speaker}]}` |
-| POST | `/api/transcribe` | `file`,`language`,`model`,`api_key` → `{text,confidence,language}` |
+| POST | `/api/music-removal` | `file` -> `audio/wav` (vocals) |
+| POST | `/api/vad` | `file` -> `{segments:[{start,end}], duration}` |
+| POST | `/api/diarize` | `file` -> `{turns:[{start,end,speaker}]}` |
+| POST | `/api/transcribe` | `file`,`language`,`model`,`api_key` -> `{text,confidence,language}` |
 
 Handled failures and "not configured" cases return **HTTP 200** with
 `{code, message}` so the UI shows a banner instead of a network error.
@@ -80,5 +79,6 @@ Handled failures and "not configured" cases return **HTTP 200** with
 
 - Per-segment transcription audio is sliced **in the browser** (decode once,
   encode a WAV per segment) so the source file is never re-uploaded per segment.
-- The existing `../ml-service/` (Cloudinary + callbacks + Mongo) is untouched;
-  v2 only reuses its provider logic behind simpler endpoints.
+- The provider wrappers (Demucs, Silero VAD, pyannote, Whisper) are ports of the
+  ML pipeline in the full BhashaCheck project, exposed here behind simple
+  stateless endpoints.
