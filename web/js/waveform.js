@@ -347,7 +347,9 @@ export function getDuration() {
   return ws ? ws.getDuration() : 0;
 }
 export function setSpeed(rate) {
-  ws && ws.setPlaybackRate(rate, false);
+  // preservePitch=true: sets the underlying media element's preservesPitch,
+  // so 0.5x/2x etc. change duration without the chipmunk/drone pitch shift.
+  ws && ws.setPlaybackRate(rate, true);
 }
 export function setZoom(px) {
   minPxPerSec = px;
