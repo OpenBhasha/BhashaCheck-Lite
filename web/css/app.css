@@ -486,8 +486,6 @@ main > section { flex: 1; min-height: 0; }
   color: var(--muted);
   margin: 0 0 10px;
 }
-.drawer-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
-.drawer-row .form-select { width: auto; }
 .shortcuts { margin: 0; font-size: 13px; }
 .shortcuts dt { margin-bottom: 2px; }
 .shortcuts dd { margin: 0 0 10px; color: var(--muted); }

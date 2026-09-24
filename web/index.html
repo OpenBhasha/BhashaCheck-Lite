@@ -131,6 +131,13 @@
               <button id="wf-stop" class="btn btn-sm btn-outline-secondary"><i class="bi bi-stop-fill"></i></button>
               <span id="wf-clock" class="wf-clock">00:00</span>
               <button id="wf-loop" class="btn btn-sm btn-outline-secondary" title="Loop selected segment"><i class="bi bi-repeat"></i></button>
+              <label class="wf-inline">Speed
+                <select id="set-speed" class="form-select form-select-sm">
+                  <option value="0.5">0.5x</option><option value="0.75">0.75x</option>
+                  <option value="1" selected>1x</option><option value="1.25">1.25x</option>
+                  <option value="1.5">1.5x</option><option value="2">2x</option>
+                </select>
+              </label>
               <label class="wf-inline">Scale
                 <input id="wf-zoom" type="range" min="10" max="300" value="40" class="form-range" />
               </label>
@@ -161,17 +168,6 @@
         <button id="close-settings" class="icon-btn" aria-label="Close settings"><i class="bi bi-x-lg"></i></button>
       </div>
       <div class="drawer-body">
-        <section>
-          <h4>Playback</h4>
-          <label class="drawer-row">
-            Speed
-            <select id="set-speed" class="form-select form-select-sm">
-              <option value="0.5">0.5x</option><option value="0.75">0.75x</option>
-              <option value="1" selected>1x</option><option value="1.25">1.25x</option>
-              <option value="1.5">1.5x</option><option value="2">2x</option>
-            </select>
-          </label>
-        </section>
         <section>
           <h4>Keyboard shortcuts</h4>
           <dl class="shortcuts">

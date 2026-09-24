@@ -686,7 +686,7 @@ function wireWaveformControls() {
     };
   }
 
-  const spd = document.getElementById("set-speed"); // lives in the settings drawer
+  const spd = document.getElementById("set-speed");
   if (spd) {
     spd.value = String(getState().ui.speed || 1);
     spd.onchange = () => {
