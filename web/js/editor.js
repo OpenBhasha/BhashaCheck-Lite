@@ -23,6 +23,7 @@ import * as api from "./api.js";
 import * as wav from "./wav.js";
 import * as wf from "./waveform.js";
 import { buildSRT, downloadSRT } from "./srt.js";
+import { buildRsmlOptions } from "./rsmlDefaults.js";
 
 const ACTIVATE_MARGIN = "600px"; // IntersectionObserver rootMargin
 const ACTIVATE_DIST = 500; // px from the scroll viewport within which the sweep also activates
@@ -354,7 +355,7 @@ function activate(id, { focus }) {
   // validation, live preview). If it throws, fall back to a plain textarea that
   // at least mirrors its text into the preview.
   try {
-    rec.annotator = new RSMLAnnotator({ textarea: ta, output: rec.output });
+    rec.annotator = new RSMLAnnotator({ textarea: ta, output: rec.output, ...buildRsmlOptions(getState().rsmlConfig) });
   } catch (err) {
     console.warn("RSMLAnnotator failed, plain textarea fallback", err);
     rec.annotator = null;
@@ -393,6 +394,20 @@ function deactivate(id) {
   rec.active = false;
   rec.el.classList.remove("cm-live");
   setCollapsed(rec);
+}
+
+// Called from the settings drawer after the RSML tag config changes. Live
+// (activated) rows have to be torn down and rebuilt for a new RSMLAnnotator
+// to pick up the edited hesitations/entities/languages/etc — the library
+// only reads opts at construction time. A row currently focused is left
+// alone (don't yank the caret mid-edit); it picks up the new config the
+// next time it deactivates and reactivates.
+export function refreshRsmlAnnotators() {
+  for (const [id, rec] of rows) {
+    if (!rec.active || rec.el.contains(document.activeElement)) continue;
+    deactivate(id);
+    activate(id, { focus: false });
+  }
 }
 
 function enforceCap(keepId) {

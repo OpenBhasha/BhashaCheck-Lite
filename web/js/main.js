@@ -7,6 +7,7 @@ import * as wav from "./wav.js";
 import { parseSRT } from "./srt.js";
 import { renderStages, wireStagesNav } from "./stages.js";
 import { mountEditor, unmountEditor } from "./editor.js";
+import { renderRsmlSettings } from "./rsmlSettings.js";
 
 // ---------------------------------------------------------------- state ----
 
@@ -19,6 +20,10 @@ const newState = () => ({
   transcription: { model: "whisper", apiKey: "" }, // language is per-segment now
   segments: [], // { id, start, end, rsml, speaker, status, verified, language }
   ui: { screen: "upload", zoom: 40, speed: 1 },
+  // null until the user customizes something in Settings -> RSML tags; the
+  // library's own defaults apply until then — see rsmlDefaults.js's
+  // buildRsmlOptions(), called from editor.js.
+  rsmlConfig: null,
 });
 
 let state = newState();
@@ -300,6 +305,21 @@ async function boot() {
   await checkService();
 
   const had = await rehydrate();
+  // After rehydrate, since it may have replaced `state` wholesale — render
+  // against the final object, not the pre-rehydrate placeholder.
+  //
+  // refreshRsmlAnnotators is fetched via a dynamic import() rather than a
+  // static one, purely to avoid growing editor.js's existing cyclic import
+  // list (see rsmlDefaults.js's buildRsmlOptions comment) — editor.js is
+  // already fully loaded by this point via the static import above, so this
+  // just reads a property off its already-resolved module namespace.
+  renderRsmlSettings(document.getElementById("rsml-tags-panel"), {
+    getState,
+    scheduleSave,
+    toast,
+    escapeHtml,
+    refreshRsmlAnnotators: (...args) => import("./editor.js").then((m) => m.refreshRsmlAnnotators(...args)),
+  });
   if (had && (state.segments.length || state.audioMeta)) {
     const saved = state.ui.screen;
     const target = saved && saved !== "upload" ? saved : state.segments.length ? "editor" : "stages";
@@ -310,4 +330,12 @@ async function boot() {
   }
 }
 
-document.addEventListener("DOMContentLoaded", boot);
+// DOMContentLoaded may already have fired by the time this module (deferred,
+// like all type="module" scripts) actually executes — a static <script>-tag
+// listener registered after the fact would then just never run. Firing
+// immediately when the document is already past "loading" covers that.
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", boot);
+} else {
+  boot();
+}
