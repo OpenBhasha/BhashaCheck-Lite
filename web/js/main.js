@@ -235,6 +235,16 @@ export async function runManualVad() {
     const detector = await window.vad.NonRealTimeVAD.new({
       baseAssetPath: `https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@${VAD_WEB_VERSION}/dist/`,
       onnxWASMBasePath: `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`,
+      // vad-web's default redemptionMs (500) is 5x the old server-side VAD's
+      // min_silence_duration_ms (100, the Python silero-vad package's own
+      // default, which the removed server/providers/vad.py just ran
+      // unmodified) - ordinary inter-sentence pauses are often well under
+      // 500ms, so the 500ms default was merging most of them into a handful
+      // of huge segments instead of splitting on each pause. 100 here
+      // restores the old segmentation granularity; every other option
+      // already matches the Python defaults (threshold/minSpeechMs/
+      // preSpeechPadMs all line up already).
+      redemptionMs: 100,
     });
     const spans = [];
     for await (const { start, end } of detector.run(samples.data, samples.sampleRate)) {

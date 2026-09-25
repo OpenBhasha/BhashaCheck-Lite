@@ -52,6 +52,7 @@ export async function mountEditor() {
   const list = document.getElementById("seg-list");
   list.innerHTML = "";
   rows.clear();
+  list.appendChild(buildLeadingGap());
   s.segments.sort((a, b) => a.start - b.start);
   for (const seg of s.segments) {
     const rowEl = buildRow(seg);
@@ -256,6 +257,28 @@ function followPlayback(t) {
 }
 
 // -------------------------------------------------------------- rows ----
+
+// The one fixed "add a segment before the first one" control at the top of
+// #seg-list (mirrors each row's own trailing .seg-gap, which inserts after
+// it). It looks up the current first segment at click time rather than
+// capturing one, since which segment is first can change underneath it.
+function buildLeadingGap() {
+  const wrap = document.createElement("div");
+  wrap.className = "seg-gap";
+  wrap.innerHTML = '<button class="seg-gap-btn" title="Add segment before the first one"><i class="bi bi-plus-lg"></i></button>';
+  wrap.querySelector("button").onclick = () => {
+    const first = getState().segments[0];
+    if (first) {
+      const span = Math.max(1, first.end - first.start);
+      addSegment(Math.max(0, first.start - span), first.start);
+    } else {
+      const t = wf.isReady() ? wf.getCurrentTime() : 0;
+      const dur = wav.getDuration() || t + 2;
+      addSegment(t, Math.min(t + 2, dur));
+    }
+  };
+  return wrap;
+}
 
 function buildRow(seg) {
   const row = document.createElement("div");
