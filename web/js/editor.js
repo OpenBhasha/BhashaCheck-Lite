@@ -72,20 +72,20 @@ export async function mountEditor() {
   clearInterval(sweepTimer);
   sweepTimer = setInterval(sweep, 1200);
 
-  keyHandler = (e) => {
-    if (e.shiftKey && e.code === "Space") {
-      e.preventDefault();
-      if (wf.isReady()) wf.playPause();
-    }
-  };
-  window.addEventListener("keydown", keyHandler);
+  keyHandler = handleShortcut;
+  // Capture phase: a segment's CodeMirror instance has its own keymap and
+  // sits between window and the event source, so a bubble-phase listener
+  // could have combos like Tab silently eaten by CM6 before they reach us.
+  // Capturing means we always see the keydown first and decide whether to
+  // preventDefault() it ourselves, regardless of what currently has focus.
+  window.addEventListener("keydown", keyHandler, true);
 }
 
 export function unmountEditor() {
   if (!mounted) return;
   mounted = false;
   clearInterval(sweepTimer);
-  if (keyHandler) window.removeEventListener("keydown", keyHandler);
+  if (keyHandler) window.removeEventListener("keydown", keyHandler, true);
   keyHandler = null;
   if (io) io.disconnect();
   io = null;
@@ -207,9 +207,11 @@ function setActive(id, { scroll = false, seek = false } = {}) {
 // While audio plays, keep the segment under the playhead active and in view.
 function followPlayback(t) {
   const segs = getState().segments;
+  const current = segs.find((s) => s.id === activeId);
+  if (current && t >= current.start && t < current.end) return; // still inside the active segment — don't hop to an earlier overlapping one
   for (const seg of segs) {
     if (t >= seg.start && t < seg.end) {
-      if (seg.id !== activeId) setActive(seg.id, { scroll: wf.isPlaying() });
+      setActive(seg.id, { scroll: wf.isPlaying() });
       return;
     }
   }
@@ -515,6 +517,141 @@ function selectRow(id, seek) {
   setActive(id, { scroll: true, seek });
 }
 
+// ------------------------------------------------------- shortcuts ----
+//
+// Everything below is keyboard-only, meant to make a full transcribe pass
+// possible without touching the mouse. Every combo carries a modifier
+// (Ctrl+Shift+*, Shift+Enter, Tab/Shift+Tab) and fires regardless of focus,
+// including while typing in a segment's own RSML editor — that's the
+// point, since that's where time is actually spent. None of them are bare
+// letters, so there's no need to gate on "not currently in a text field".
+
+// Scopes shortcuts to the editor's own UI (segment list + waveform
+// controls) so they don't fire while, say, typing into the settings
+// drawer's "add tag name" field — that overlay sits on top of the editor
+// screen without unmounting it, so it needs its own exclusion.
+function inShortcutScope(e) {
+  const el = e.target;
+  if (el === document.body) return true;
+  return !!(el.closest && el.closest("#seg-list, #wf-controls, #wf-scrub, #waveform-panel"));
+}
+
+// Focuses a row's actual editing surface. A freshly-activated row's
+// CodeMirror view doesn't exist yet (it boots async) so activate()'s own
+// {focus:true} path focusing the underlying textarea is the best available
+// — CM6 picks up the focus once it mounts. An already-active row's view
+// does exist, and it's the real interactive surface (the textarea sits
+// beneath it, hidden), so focus that directly.
+function focusSegmentEditor(id) {
+  const rec = rows.get(id);
+  if (!rec) return;
+  if (rec.annotator && rec.annotator.view) rec.annotator.view.focus();
+  else if (rec.textarea) rec.textarea.focus();
+}
+
+// Moves the active segment by `dir` (+1/-1) in start-time order, seeks the
+// playhead there, and focuses its editor — Tab/Shift+Tab and Shift+Enter
+// all route through this so "keep moving forward while transcribing" stays
+// one keystroke. No active segment yet: both directions land on the first.
+function stepSegment(dir) {
+  const ids = getState().segments.map((s) => s.id);
+  if (!ids.length) return;
+  const cur = activeId ? ids.indexOf(activeId) : -1;
+  const idx = cur === -1 ? 0 : cur + dir;
+  if (idx < 0 || idx >= ids.length) return; // at a boundary — no wraparound
+  const id = ids[idx];
+  activate(id, { focus: false });
+  setActive(id, { scroll: true, seek: true });
+  focusSegmentEditor(id);
+}
+
+function verifyActive() {
+  const seg = activeId && getState().segments.find((x) => x.id === activeId);
+  if (!seg || seg.verified) return;
+  seg.verified = true;
+  const rec = rows.get(activeId);
+  if (rec) {
+    rec.el.classList.add("verified");
+    rec.els.check.checked = true;
+  }
+  updateVerifyCount();
+  scheduleSave();
+}
+
+function stepSpeed(dir) {
+  const sel = document.getElementById("set-speed");
+  if (!sel) return;
+  const i = Math.min(sel.options.length - 1, Math.max(0, sel.selectedIndex + dir));
+  if (i === sel.selectedIndex) return;
+  sel.selectedIndex = i;
+  sel.dispatchEvent(new Event("change"));
+}
+
+function toggleShortcutsModal(forceOpen) {
+  const modal = document.getElementById("shortcuts-modal");
+  const backdrop = document.getElementById("shortcuts-backdrop");
+  if (!modal || !backdrop) return;
+  const show = forceOpen != null ? forceOpen : modal.hidden;
+  modal.hidden = !show;
+  backdrop.hidden = !show;
+}
+
+function handleShortcut(e) {
+  // Ctrl+/ always toggles the shortcuts modal, regardless of scope/focus
+  // — it's a "how do I use this thing" escape hatch, useful even if focus
+  // has ended up somewhere unexpected.
+  if (e.ctrlKey && e.key === "/") {
+    e.preventDefault();
+    toggleShortcutsModal();
+    return;
+  }
+  const modalOpen = !document.getElementById("shortcuts-modal")?.hidden;
+  if (modalOpen) {
+    if (e.key === "Escape") toggleShortcutsModal(false);
+    return; // modal open: don't let segment shortcuts fire underneath it
+  }
+
+  if (!inShortcutScope(e)) return;
+
+  if (e.shiftKey && e.code === "Space" && !e.ctrlKey) {
+    e.preventDefault();
+    if (wf.isReady()) wf.playPause();
+    return;
+  }
+  if (e.ctrlKey && e.shiftKey && e.code === "Space") {
+    e.preventDefault();
+    if (wf.isReady() && activeId) wf.toggleSegment(activeId, (playing) => setPlayButton(activeId, playing));
+    return;
+  }
+  // Checks e.code AND both possible e.key values: some browser/OS/layout
+  // combinations don't recompute the shifted character once Ctrl is also
+  // held, so Ctrl+Shift+. can come through as e.code:"Period" (the normal,
+  // reliable case), or with e.code missing/unreliable and e.key stuck at
+  // the unshifted "." instead of ">" — exactly why this didn't fire
+  // reliably before. Covering all three keeps it working either way.
+  if (e.ctrlKey && e.shiftKey && (e.code === "Period" || e.key === ">" || e.key === ".")) {
+    e.preventDefault();
+    stepSpeed(1);
+    return;
+  }
+  if (e.ctrlKey && e.shiftKey && (e.code === "Comma" || e.key === "<" || e.key === ",")) {
+    e.preventDefault();
+    stepSpeed(-1);
+    return;
+  }
+  if (e.shiftKey && e.key === "Enter") {
+    e.preventDefault();
+    verifyActive();
+    stepSegment(1);
+    return;
+  }
+  if (e.key === "Tab") {
+    e.preventDefault();
+    stepSegment(e.shiftKey ? -1 : 1);
+    return;
+  }
+}
+
 // ---------------------------------------------------------- segments ----
 
 function addSegment(start, end) {
@@ -668,6 +805,10 @@ function wireChrome() {
   bind("editor-back-btn", () => showScreen("stages"));
   bind("add-seg-btn", addSegmentAtPlayhead);
   bind("transcribe-all-btn", transcribeAll);
+  bind("shortcuts-btn", () => toggleShortcutsModal());
+  bind("close-shortcuts", () => toggleShortcutsModal(false));
+  const shortcutsBackdrop = document.getElementById("shortcuts-backdrop");
+  if (shortcutsBackdrop) shortcutsBackdrop.onclick = () => toggleShortcutsModal(false);
 
   const all = document.getElementById("verify-all");
   if (all) all.onchange = () => setAllVerified(all.checked);

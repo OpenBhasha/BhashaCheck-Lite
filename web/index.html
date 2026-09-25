@@ -152,6 +152,9 @@
             <button id="transcribe-all-btn" class="btn btn-sm btn-outline-primary">
               <i class="bi bi-lightning-charge"></i> Transcribe all
             </button>
+            <button id="shortcuts-btn" class="btn btn-sm btn-outline-secondary" title="Keyboard shortcuts (Ctrl+/)">
+              <i class="bi bi-keyboard"></i> Shortcuts
+            </button>
             <span class="flex-spacer"></span>
             <button id="export-srt-btn" class="btn btn-sm btn-success">
               <i class="bi bi-download"></i> Export SRT
@@ -169,13 +172,6 @@
       </div>
       <div class="drawer-body">
         <section>
-          <h4>Keyboard shortcuts</h4>
-          <dl class="shortcuts">
-            <dt><kbd>Shift</kbd> + <kbd>Space</kbd></dt>
-            <dd>Play / pause</dd>
-          </dl>
-        </section>
-        <section>
           <h4>RSML tags</h4>
           <p class="muted small">
             The tag vocabulary the RSML editor autocompletes and validates against. Changes apply to
@@ -190,6 +186,30 @@
         </section>
       </div>
     </aside>
+
+    <div id="shortcuts-backdrop" class="drawer-backdrop" hidden></div>
+    <div id="shortcuts-modal" class="shortcuts-modal" hidden role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+      <div class="shortcuts-modal-head">
+        <strong>Keyboard shortcuts</strong>
+        <button id="close-shortcuts" class="icon-btn" aria-label="Close shortcuts"><i class="bi bi-x-lg"></i></button>
+      </div>
+      <div class="shortcuts-modal-body">
+        <dl class="shortcuts">
+          <dt><kbd>Shift</kbd> + <kbd>Space</kbd></dt>
+          <dd>Play / pause</dd>
+          <dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Space</kbd></dt>
+          <dd>Play active segment from its start</dd>
+          <dt><kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd></dt>
+          <dd>Next / previous segment</dd>
+          <dt><kbd>Shift</kbd> + <kbd>Enter</kbd></dt>
+          <dd>Verify segment, move to next</dd>
+          <dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>&gt;</kbd> / <kbd>&lt;</kbd></dt>
+          <dd>Speed up / down</dd>
+          <dt><kbd>Ctrl</kbd> + <kbd>/</kbd></dt>
+          <dd>Toggle this panel</dd>
+        </dl>
+      </div>
+    </div>
 
     <div id="toast-area" class="toast-area"></div>
 
