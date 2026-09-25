@@ -124,7 +124,10 @@ async function initWaveform() {
       },
       onRegionClick: (id) => selectRow(id, false),
       onTime: onPlayhead,
-      onView: () => updateScrubHead(),
+      onView: () => {
+        updateScrubHead();
+        updateScrubMarks();
+      },
       onPlayState: (playing) => {
         const b = document.getElementById("wf-play");
         if (b) b.innerHTML = playing ? '<i class="bi bi-pause-fill"></i>' : '<i class="bi bi-play-fill"></i>';
@@ -136,6 +139,7 @@ async function initWaveform() {
     wf.setSpeed(getState().ui.speed || 1);
     wf.setRegions(getState().segments);
     updateScrubHead(0);
+    updateScrubMarks();
   } catch (err) {
     console.warn("waveform init failed", err);
     panel.hidden = true;
@@ -171,6 +175,36 @@ function updateScrubHead(t) {
   }
   head.hidden = false;
   head.style.left = `${Math.min(100, Math.max(0, f * 100))}%`;
+}
+
+// Draw a green band on the scrub strip for every verified segment that falls
+// within the visible time window, so verified work stays visible while
+// scrubbing even when the waveform itself is scrolled past it.
+function updateScrubMarks() {
+  const scrub = document.getElementById("wf-scrub");
+  if (!scrub || !wf.isReady()) return;
+  let marks = scrub.querySelector(".wf-scrub-marks");
+  if (!marks) {
+    marks = document.createElement("div");
+    marks.className = "wf-scrub-marks";
+    scrub.prepend(marks); // behind #wf-scrub-head, which comes after it in the DOM
+  }
+  const { start, end } = wf.getView();
+  const span = end - start;
+  if (span <= 0) {
+    marks.replaceChildren();
+    return;
+  }
+  const html = getState()
+    .segments.filter((s) => s.verified)
+    .map((s) => {
+      const l = Math.max(0, Math.min(1, (s.start - start) / span));
+      const r = Math.max(0, Math.min(1, (s.end - start) / span));
+      if (r <= l) return "";
+      return `<div class="wf-scrub-mark" style="left:${(l * 100).toFixed(3)}%;width:${((r - l) * 100).toFixed(3)}%"></div>`;
+    })
+    .join("");
+  marks.innerHTML = html;
 }
 
 // The single "active segment" highlight. Set by a click anywhere in a row, a
@@ -250,6 +284,7 @@ function buildRow(seg) {
         <div class="pane-label">Preview</div>
         <div class="rsml-output"></div>
       </div>
+      <div class="panes-resize" title="Drag to resize"></div>
     </div>`;
 
   const els = {
@@ -269,6 +304,38 @@ function buildRow(seg) {
   rows.set(seg.id, rec);
 
   setCollapsed(rec); // start collapsed; IntersectionObserver upgrades it
+
+  // One shared puller resizes both the transcription editor and the preview
+  // together (a --panes-h custom property both panes read their height from),
+  // instead of each pane growing independently to its own content.
+  const panesEl = row.querySelector(".seg-panes");
+  const resizer = row.querySelector(".panes-resize");
+  const PANES_MIN_H = 96;
+  const PANES_MAX_H = 800;
+  let resizeStartY = 0;
+  let resizeStartH = 0;
+  resizer.onpointerdown = (e) => {
+    e.preventDefault();
+    resizeStartY = e.clientY;
+    resizeStartH = host.getBoundingClientRect().height || 320;
+    resizer.classList.add("dragging");
+    try {
+      resizer.setPointerCapture(e.pointerId);
+    } catch {}
+  };
+  resizer.onpointermove = (e) => {
+    if (!resizer.hasPointerCapture || !resizer.hasPointerCapture(e.pointerId)) return;
+    const h = Math.max(PANES_MIN_H, Math.min(PANES_MAX_H, resizeStartH + (e.clientY - resizeStartY)));
+    panesEl.style.setProperty("--panes-h", `${h}px`);
+  };
+  const endResize = (e) => {
+    resizer.classList.remove("dragging");
+    try {
+      resizer.releasePointerCapture(e.pointerId);
+    } catch {}
+  };
+  resizer.onpointerup = endResize;
+  resizer.onpointercancel = endResize;
 
   els.check.onchange = () => {
     seg.verified = els.check.checked;
@@ -780,6 +847,10 @@ function updateVerifyCount() {
   if (all) {
     all.checked = n > 0 && n === s.segments.length;
     all.indeterminate = n > 0 && n < s.segments.length;
+  }
+  if (wf.isReady()) {
+    wf.syncRegionColors(s.segments);
+    updateScrubMarks();
   }
 }
 

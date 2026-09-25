@@ -21,7 +21,8 @@ let segPlayId = null; // region id currently in "play just this segment" mode
 let viewStart = 0;
 let viewEnd = 0;
 
-const REGION_COLORS = ["rgba(91,60,196,0.12)", "rgba(226,112,58,0.14)"];
+const REGION_COLOR = "rgba(91,60,196,0.12)";
+const REGION_COLOR_VERIFIED = "rgba(31,157,100,0.2)";
 
 export function isReady() {
   return !!ws;
@@ -262,7 +263,7 @@ export function setRegions(segments) {
         id: seg.id,
         start: seg.start,
         end: seg.end,
-        color: REGION_COLORS[i % REGION_COLORS.length],
+        color: seg.verified ? REGION_COLOR_VERIFIED : REGION_COLOR,
         drag: true,
         resize: true,
         content: seg.speaker || String(i + 1),
@@ -280,6 +281,23 @@ export function updateRegion(id, start, end) {
   suppress = true;
   try {
     r.setOptions({ start, end });
+  } finally {
+    suppress = false;
+  }
+}
+
+// Re-color regions in place (verified -> green, else the plain color) without
+// rebuilding them, so a checkbox toggle never disturbs an in-progress drag.
+export function syncRegionColors(segments) {
+  if (!regions) return;
+  suppress = true;
+  try {
+    const byId = new Map(segments.map((s) => [s.id, s]));
+    regions.getRegions().forEach((r) => {
+      const seg = byId.get(r.id);
+      if (!seg) return;
+      r.setOptions({ color: seg.verified ? REGION_COLOR_VERIFIED : REGION_COLOR });
+    });
   } finally {
     suppress = false;
   }
