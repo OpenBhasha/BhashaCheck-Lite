@@ -235,16 +235,20 @@ export async function runManualVad() {
     const detector = await window.vad.NonRealTimeVAD.new({
       baseAssetPath: `https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@${VAD_WEB_VERSION}/dist/`,
       onnxWASMBasePath: `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`,
-      // vad-web's default redemptionMs (500) is 5x the old server-side VAD's
-      // min_silence_duration_ms (100, the Python silero-vad package's own
-      // default, which the removed server/providers/vad.py just ran
-      // unmodified) - ordinary inter-sentence pauses are often well under
-      // 500ms, so the 500ms default was merging most of them into a handful
-      // of huge segments instead of splitting on each pause. 100 here
-      // restores the old segmentation granularity; every other option
-      // already matches the Python defaults (threshold/minSpeechMs/
-      // preSpeechPadMs all line up already).
-      redemptionMs: 100,
+      // vad-web's default redemptionMs is 500 (merges on anything shorter
+      // than a 500ms pause) - user-reported ~5 segments on a real recording
+      // that should have had ~514, i.e. nearly everything got merged
+      // together. Dropping to 100 (the old server-side VAD's
+      // min_silence_duration_ms, the Python silero-vad package's own
+      // default, which server/providers/vad.py just ran unmodified) went
+      // too far the other way: user-reported 543 on that same recording,
+      // visibly over-fragmented on short inter-phrase pauses even though
+      // the raw count landed close to the expected ~514. 200 is a
+      // reasoned middle value - splits on pauses roughly sentence-length
+      // or longer while tolerating shorter inter-phrase gaps - not a
+      // number verified against the user's actual file (only checked here
+      // against synthesized test speech); revisit if it's still off.
+      redemptionMs: 200,
     });
     const spans = [];
     for await (const { start, end } of detector.run(samples.data, samples.sampleRate)) {
