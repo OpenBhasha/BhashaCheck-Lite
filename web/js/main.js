@@ -15,7 +15,7 @@ const newState = () => ({
   createdAt: Date.now(),
   updatedAt: Date.now(),
   audioMeta: null, // { name, type, size, duration }
-  segments: [], // { id, start, end, rsml, speaker, status, verified }
+  segments: [], // { id, start, end, rsml, speaker, verified }
   ui: { screen: "upload", zoom: 40, speed: 1 },
   // null until the user customizes something in Settings -> RSML tags; a
   // straight snapshot of an RSMLAnnotator's own .opts otherwise (see
@@ -181,7 +181,6 @@ export async function importSrt(srtFile) {
     end: c.end,
     rsml: c.text,
     speaker: null,
-    status: c.text.trim() ? "done" : "empty",
     verified: false,
   }));
   await saveNow();
@@ -216,14 +215,15 @@ function loadVadLib() {
   return vadLoadPromise;
 }
 
-// "Continue manually": runs a browser-side Silero VAD pass (via
+// "Skip" on the setup screen: runs a browser-side Silero VAD pass (via
 // @ricky0123/vad-web's NonRealTimeVAD, no server involved) over the already-
 // decoded audio to seed segments automatically, then opens the editor either
 // way — on any failure (no network for the CDN model on first use, browser
 // unsupported, etc.) it still opens the editor with zero segments so the
-// user can draw them by hand with "Add segment at playhead".
+// user can draw them by hand (drag on the waveform, or the "+" between
+// segments once there's at least one).
 export async function runManualVad() {
-  const btn = document.getElementById("setup-manual-btn");
+  const btn = document.getElementById("setup-skip-btn");
   if (btn) {
     btn.disabled = true;
     btn.textContent = "Analyzing audio...";
@@ -247,22 +247,21 @@ export async function runManualVad() {
       end: sp.end,
       rsml: "",
       speaker: null,
-      status: "empty",
       verified: false,
     }));
     await saveNow();
     toast(
-      spans.length ? `Found ${spans.length} speech segments.` : "No speech detected - add segments manually in the editor.",
+      spans.length ? `Found ${spans.length} speech segments.` : "No speech detected - drag on the waveform to add one.",
       spans.length ? "success" : "info"
     );
   } catch (err) {
     console.warn("client-side VAD failed", err);
-    toast(`Automatic segmentation failed (${err.message || err}). Opening the editor - add segments manually.`, "warn");
+    toast(`Automatic segmentation failed (${err.message || err}). Opening the editor - drag on the waveform to add segments.`, "warn");
   } finally {
     showScreen("editor");
     if (btn) {
       btn.disabled = false;
-      btn.textContent = "Continue manually";
+      btn.textContent = "Skip";
     }
   }
 }
@@ -273,10 +272,26 @@ function wireSetupNav() {
     back.onclick = () => {
       if (confirm("Go back to upload? Your current work stays saved and you can restore it.")) showScreen("upload");
     };
-  const srtBtn = document.getElementById("setup-srt-btn");
-  if (srtBtn) srtBtn.onclick = () => document.getElementById("srt-input").click();
-  const manualBtn = document.getElementById("setup-manual-btn");
-  if (manualBtn) manualBtn.onclick = runManualVad;
+
+  const drop = document.getElementById("srt-dropzone");
+  const srtInput = document.getElementById("srt-input");
+  if (drop && srtInput) {
+    drop.addEventListener("click", () => srtInput.click());
+    drop.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      drop.classList.add("dragover");
+    });
+    drop.addEventListener("dragleave", () => drop.classList.remove("dragover"));
+    drop.addEventListener("drop", (e) => {
+      e.preventDefault();
+      drop.classList.remove("dragover");
+      const f = e.dataTransfer.files[0];
+      if (f) importSrt(f);
+    });
+  }
+
+  const skipBtn = document.getElementById("setup-skip-btn");
+  if (skipBtn) skipBtn.onclick = runManualVad;
 }
 
 // ------------------------------------------------------- settings drawer ----

@@ -53,7 +53,11 @@ export async function mountEditor() {
   list.innerHTML = "";
   rows.clear();
   s.segments.sort((a, b) => a.start - b.start);
-  for (const seg of s.segments) list.appendChild(buildRow(seg));
+  for (const seg of s.segments) {
+    const rowEl = buildRow(seg);
+    list.appendChild(rowEl);
+    list.appendChild(rows.get(seg.id).gapEl);
+  }
   reindex();
   updateVerifyCount();
 
@@ -121,6 +125,7 @@ async function initWaveform() {
         scheduleSave();
       },
       onRegionClick: (id) => selectRow(id, false),
+      onRegionCreate: (start, end) => addSegment(start, end),
       onTime: onPlayhead,
       onView: () => {
         updateScrubHead();
@@ -267,8 +272,6 @@ function buildRow(seg) {
       <span class="seg-dur"></span>
       <span class="flex-spacer"></span>
       <button class="btn btn-sm btn-outline-primary seg-play" title="Play this segment"><i class="bi bi-play-fill"></i></button>
-      <span class="seg-status" data-status="${seg.status || "empty"}"></span>
-      <button class="btn btn-sm btn-link seg-add" title="Add segment after this one"><i class="bi bi-plus-lg"></i></button>
       <button class="btn btn-sm btn-link text-danger seg-del" title="Delete segment"><i class="bi bi-trash"></i></button>
     </div>
     <div class="seg-panes">
@@ -287,14 +290,23 @@ function buildRow(seg) {
     check: row.querySelector(".seg-check"),
     idx: row.querySelector(".seg-idx"),
     dur: row.querySelector(".seg-dur"),
-    status: row.querySelector(".seg-status"),
     play: row.querySelector(".seg-play"),
     starts: row.querySelectorAll('.time-group[data-edge="start"] input'),
     ends: row.querySelectorAll('.time-group[data-edge="end"] input'),
   };
   const host = row.querySelector(".rsml-host");
   const output = row.querySelector(".rsml-output");
-  const rec = { seg, el: row, host, output, plainEl: null, textarea: null, annotator: null, active: false, els };
+  // A small "add segment after this one" control rendered as its own sibling
+  // in #seg-list, between this row and the next, rather than a button
+  // inline in the row's own toolbar.
+  const gapEl = document.createElement("div");
+  gapEl.className = "seg-gap";
+  gapEl.innerHTML = '<button class="seg-gap-btn" title="Add segment after this one"><i class="bi bi-plus-lg"></i></button>';
+  gapEl.querySelector("button").onclick = () => {
+    const span = Math.max(1, seg.end - seg.start);
+    addSegment(seg.end, wav.getDuration() ? Math.min(seg.end + span, wav.getDuration()) : seg.end + span);
+  };
+  const rec = { seg, el: row, host, output, gapEl, plainEl: null, textarea: null, annotator: null, active: false, els };
   rows.set(seg.id, rec);
 
   setCollapsed(rec); // start collapsed; IntersectionObserver upgrades it
@@ -350,10 +362,6 @@ function buildRow(seg) {
     wf.toggleSegment(seg.id, (playing) => setPlayButton(seg.id, playing));
   };
   row.querySelector(".seg-del").onclick = () => removeSegment(seg.id);
-  row.querySelector(".seg-add").onclick = () => {
-    const span = Math.max(1, seg.end - seg.start);
-    addSegment(seg.end, wav.getDuration() ? Math.min(seg.end + span, wav.getDuration()) : seg.end + span);
-  };
 
   const onTimeInput = (edge) => {
     const inputs = edge === "start" ? els.starts : els.ends;
@@ -370,7 +378,6 @@ function buildRow(seg) {
   els.ends.forEach((i) => (i.onchange = () => onTimeInput("end")));
 
   updateDur(seg);
-  updateStatus(seg);
   return row;
 }
 
@@ -431,10 +438,6 @@ function activate(id, { focus }) {
   ta.addEventListener("input", () => {
     if (rec.seg.rsml !== ta.value) {
       rec.seg.rsml = ta.value;
-      if (rec.seg.status === "empty" && ta.value.trim()) {
-        rec.seg.status = "done";
-        updateStatus(rec.seg);
-      }
       scheduleSave();
     }
   });
@@ -520,14 +523,6 @@ function refreshRowTimes(seg) {
 function updateDur(seg) {
   const r = rows.get(seg.id);
   if (r) r.els.dur.textContent = `${(seg.end - seg.start).toFixed(2)}s`;
-}
-
-function updateStatus(seg) {
-  const r = rows.get(seg.id);
-  if (!r) return;
-  const map = { empty: "", done: "✓" };
-  r.els.status.dataset.status = seg.status || "empty";
-  r.els.status.textContent = map[seg.status || "empty"] || "";
 }
 
 function setPlayButton(id, playing) {
@@ -706,16 +701,21 @@ function addSegment(start, end) {
     end: Math.max(start + 0.02, Math.min(end, dur)),
     rsml: "",
     speaker: null,
-    status: "empty",
     verified: false,
   };
   s.segments.push(seg);
   s.segments.sort((a, b) => a.start - b.start);
   const list = document.getElementById("seg-list");
   const rowEl = buildRow(seg);
+  const gapEl = rows.get(seg.id).gapEl;
   const nextSeg = s.segments[s.segments.indexOf(seg) + 1];
-  if (nextSeg && rows.get(nextSeg.id)) list.insertBefore(rowEl, rows.get(nextSeg.id).el);
-  else list.appendChild(rowEl);
+  if (nextSeg && rows.get(nextSeg.id)) {
+    list.insertBefore(rowEl, rows.get(nextSeg.id).el);
+    list.insertBefore(gapEl, rows.get(nextSeg.id).el);
+  } else {
+    list.appendChild(rowEl);
+    list.appendChild(gapEl);
+  }
   if (io) io.observe(rowEl);
   reindex();
   updateVerifyCount();
@@ -723,12 +723,6 @@ function addSegment(start, end) {
   if (wf.isReady()) wf.setRegions(s.segments);
   scheduleSave();
   selectRow(seg.id, false);
-}
-
-function addSegmentAtPlayhead() {
-  const t = wf.isReady() ? wf.getCurrentTime() : 0;
-  const dur = wav.getDuration() || t + 2;
-  addSegment(t, Math.min(t + 2, dur));
 }
 
 function removeSegment(id) {
@@ -740,6 +734,7 @@ function removeSegment(id) {
     } catch {}
     if (io) io.unobserve(r.el);
     r.el.remove();
+    r.gapEl.remove();
     rows.delete(id);
   }
   if (activeId === id) activeId = null;
@@ -779,11 +774,29 @@ function setAllVerified(v) {
   scheduleSave();
 }
 
+// Jumps to the segment right after the last verified one (in start-time
+// order) - "resume where I left off". No segment verified yet: the first
+// segment. The last segment is already verified (nothing after it): stays
+// on the last segment rather than doing nothing.
+function jumpToLatest() {
+  const segs = getState().segments;
+  if (!segs.length) return;
+  let lastVerified = -1;
+  segs.forEach((s, i) => {
+    if (s.verified) lastVerified = i;
+  });
+  const idx = Math.min(lastVerified + 1, segs.length - 1);
+  const id = segs[idx].id;
+  activate(id, { focus: false });
+  setActive(id, { scroll: true, seek: true });
+  focusSegmentEditor(id);
+}
+
 // ------------------------------------------------------------- chrome ----
 
 function wireChrome() {
   bind("editor-back-btn", () => showScreen("setup"));
-  bind("add-seg-btn", addSegmentAtPlayhead);
+  bind("jump-latest-btn", jumpToLatest);
   bind("shortcuts-btn", () => toggleShortcutsModal());
   bind("close-shortcuts", () => toggleShortcutsModal(false));
   const shortcutsBackdrop = document.getElementById("shortcuts-backdrop");
@@ -929,8 +942,6 @@ function syncOne(rec) {
   if (typeof v !== "string" || v === seg.rsml) return false;
   if (v === "" && seg.rsml && (rec.textarea?.value || "").trim()) return false;
   seg.rsml = v;
-  if (seg.status === "empty" && v.trim()) seg.status = "done";
-  updateStatus(seg);
   return true;
 }
 

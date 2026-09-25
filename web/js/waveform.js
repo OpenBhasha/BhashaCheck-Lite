@@ -44,7 +44,11 @@ export async function initWaveform(container, blob, h = {}) {
     minPxPerSec,
     fillParent: true,
     url: objectUrl,
-    dragToSeek: true, // dragging the waveform body scrubs, it never creates regions
+    // dragToSeek is left off (default false): a *click* still seeks (that's
+    // core wavesurfer's separate `interact` option, on by default), but a
+    // *drag* on empty waveform space is reserved for enableDragSelection
+    // below, to draw a new segment. The dedicated #wf-scrub strip above the
+    // waveform remains the way to drag-scrub through the clip.
     plugins: [regions, TimelinePlugin.create({ height: 18 })],
   });
 
@@ -100,8 +104,9 @@ export async function initWaveform(container, blob, h = {}) {
     ws.on("error", () => resolve());
   });
   refreshView();
-  // No drag-selection: new segments come from the "Add segment" button, so a
-  // drag on the waveform only ever moves the playhead.
+  // Dragging on empty waveform space draws a new region; region-created
+  // (wired above) turns it into a real segment via handlers.onRegionCreate.
+  regions.enableDragSelection({ color: REGION_COLOR, drag: true, resize: true });
 }
 
 // The WaveSurfer scroll container (parent of the canvas wrapper). Reading

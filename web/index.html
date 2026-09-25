@@ -20,7 +20,7 @@
         <i class="bi bi-soundwave"></i>
         <div>
           <strong>BhashaCheck</strong>
-          <div class="tagline">Upload, segment, RSML annotate, SRT export</div>
+          <div class="tagline">Rich Transcription Tool</div>
         </div>
       </div>
       <div class="header-right">
@@ -35,11 +35,6 @@
       <!-- ============================ UPLOAD ============================ -->
       <section id="screen-upload">
         <div class="upload-card">
-          <h1>Start a new transcription</h1>
-          <p class="muted">
-            Everything runs locally and is saved in your browser, so you will not lose progress on reload.
-          </p>
-
           <div id="dropzone" class="dropzone">
             <i class="bi bi-cloud-arrow-up"></i>
             <div class="dz-title">Drop an audio file here, or click to choose</div>
@@ -56,32 +51,17 @@
         <div class="screen-inner">
           <div class="screen-head">
             <button id="setup-back-btn" class="btn btn-sm btn-link"><i class="bi bi-arrow-left"></i> Upload</button>
-            <h2>Segment this audio</h2>
-            <p class="muted">Bring in an SRT you already have, or let the browser find speech segments for you.</p>
+            <h2>Upload SRT</h2>
           </div>
 
-          <div class="setup-options">
-            <div class="card setup-card">
-              <div class="card-body">
-                <i class="bi bi-filetype-txt"></i>
-                <h3>Upload an SRT</h3>
-                <p class="muted small">
-                  Already have a transcript? Import its cues as segments and open the editor.
-                </p>
-                <button id="setup-srt-btn" class="btn btn-outline-primary">Choose .srt file</button>
-              </div>
-            </div>
-            <div class="card setup-card">
-              <div class="card-body">
-                <i class="bi bi-soundwave"></i>
-                <h3>Continue manually</h3>
-                <p class="muted small">
-                  Runs voice-activity detection right in your browser to seed segments, then opens the
-                  editor where you can add, remove, or adjust them.
-                </p>
-                <button id="setup-manual-btn" class="btn btn-primary">Continue manually</button>
-              </div>
-            </div>
+          <div id="srt-dropzone" class="dropzone">
+            <i class="bi bi-filetype-txt"></i>
+            <div class="dz-title">Drop an SRT file here, or click to choose</div>
+          </div>
+
+          <div class="setup-skip">
+            <button id="setup-skip-btn" class="btn btn-outline-secondary">Skip</button>
+            <p class="muted small">Skip and continue manually with automatic segmentation.</p>
           </div>
         </div>
       </section>
@@ -96,13 +76,13 @@
             <span><span id="verify-count">0 / 0</span> verified</span>
           </label>
           <span class="flex-spacer"></span>
-          <button id="add-seg-btn" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-plus-lg"></i> Add segment at playhead
+          <button id="jump-latest-btn" class="btn btn-sm btn-outline-secondary" title="Go to the segment after the last one you verified">
+            <i class="bi bi-skip-end"></i> Jump to latest
           </button>
         </div>
 
         <p id="editor-empty" class="editor-empty" hidden>
-          No segments yet. Move the playhead and use "Add segment".
+          No segments yet. Drag on the waveform below to create one.
         </p>
 
         <div id="seg-list" class="seg-list"></div>
