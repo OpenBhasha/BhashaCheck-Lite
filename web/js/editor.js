@@ -21,7 +21,7 @@ import {
 import * as wav from "./wav.js";
 import * as wf from "./waveform.js";
 import { buildSRT, downloadSRT } from "./srt.js";
-import { speakerLabel, openSpeakerModal, applySelect2 } from "./speakers.js";
+import { speakerLabel, openSpeakerModal, defaultSpeakerId } from "./speakers.js";
 
 const ACTIVATE_MARGIN = "600px"; // IntersectionObserver rootMargin
 const ACTIVATE_DIST = 500; // px from the scroll viewport within which the sweep also activates
@@ -300,12 +300,7 @@ function buildRow(seg) {
     </div>
     <div class="seg-panes">
       <div class="seg-pane seg-editor">
-        <div class="pane-label">
-          <span>RSML Transcription</span>
-          <button type="button" class="codemix-insert-btn" title="Insert the default code-mixing language tag" hidden>
-            <i class="bi bi-translate"></i><span class="codemix-code"></span>
-          </button>
-        </div>
+        <div class="pane-label">RSML Transcription</div>
         <div class="rsml-host"></div>
       </div>
       <div class="seg-pane seg-preview">
@@ -321,12 +316,9 @@ function buildRow(seg) {
     dur: row.querySelector(".seg-dur"),
     play: row.querySelector(".seg-play"),
     speaker: row.querySelector(".seg-speaker"),
-    codemixBtn: row.querySelector(".codemix-insert-btn"),
     starts: row.querySelectorAll('.time-group[data-edge="start"] input'),
     ends: row.querySelectorAll('.time-group[data-edge="end"] input'),
   };
-  applySelect2(els.speaker);
-  updateCodeMixButton(els);
   const host = row.querySelector(".rsml-host");
   const output = row.querySelector(".rsml-output");
   // A small "add segment after this one" control rendered as its own sibling
@@ -387,13 +379,11 @@ function buildRow(seg) {
       // Reset the visible selection back to whatever's actually assigned
       // while the modal is open, rather than sitting on "+ Add new speaker".
       els.speaker.innerHTML = speakerOptionsHtml(seg.speaker);
-      applySelect2(els.speaker);
       openSpeakerModal(speakerDeps(), {
         onSaved: (sp) => {
           seg.speaker = sp.id;
           scheduleSave();
           els.speaker.innerHTML = speakerOptionsHtml(seg.speaker);
-          applySelect2(els.speaker);
         },
       });
       return;
@@ -401,7 +391,6 @@ function buildRow(seg) {
     seg.speaker = parseInt(els.speaker.value, 10);
     scheduleSave();
   };
-  els.codemixBtn.onclick = () => insertCodeMixTag(seg.id);
   // A click anywhere in the row (bar, times, textarea, preview, buttons) marks
   // it the active segment. No scroll / no seek here, so editing is undisturbed.
   row.addEventListener("pointerdown", () => setActive(seg.id));
@@ -476,6 +465,7 @@ function activate(id, { focus }) {
     // .opts (see rsmlSettings.js), so it can be spread in as-is — same
     // shape the constructor already expects.
     rec.annotator = new RSMLAnnotator({ textarea: ta, output: rec.output, ...(getState().rsmlConfig || {}) });
+    patchCodeMixBoost(rec.annotator);
   } catch (err) {
     console.warn("RSMLAnnotator failed, plain textarea fallback", err);
     rec.annotator = null;
@@ -535,50 +525,40 @@ export function applyRsmlChange(category, action, value, label) {
 export function refreshSpeakerDropdowns() {
   for (const rec of rows.values()) {
     rec.els.speaker.innerHTML = speakerOptionsHtml(rec.seg.speaker);
-    applySelect2(rec.els.speaker);
   }
 }
 
-// Called once at row build time and again whenever the default
-// code-mixing language setting changes - toggles the per-row quick-insert
-// button and updates the language code it shows/inserts.
-function updateCodeMixButton(els) {
-  const code = getState().defaultCodeMixLanguage;
-  els.codemixBtn.hidden = !code;
-  els.codemixBtn.querySelector(".codemix-code").textContent = code ? `!${code}` : "";
-}
-
-export function refreshCodeMixButtons() {
-  for (const rec of rows.values()) updateCodeMixButton(rec.els);
-}
-
-// Inserts the default code-mixing language's tag at the cursor: !code
-// around a selection as !code[selected](selected), or bare !code with no
-// selection (the user types the brackets themselves from there, same as
-// starting to type ! by hand). Activates a collapsed row first if needed -
-// CM6 mounts asynchronously, so without a live cursor yet, insert at the
-// end of whatever text is there; the annotator's own input listener (see
-// activate()) picks up the raw textarea edit regardless of whether CM6 has
-// finished mounting on top of it yet.
-function insertCodeMixTag(id) {
-  const code = getState().defaultCodeMixLanguage;
-  if (!code) return;
-  activate(id, { focus: true });
-  const rec = rows.get(id);
-  if (!rec) return;
-  if (rec.annotator && rec.annotator.view) {
-    const view = rec.annotator.view;
-    const { from, to } = view.state.selection.main;
-    const selected = view.state.sliceDoc(from, to);
-    const text = selected ? `!${code}[${selected}](${selected})` : `!${code}`;
-    view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length } });
-    view.focus();
-  } else if (rec.textarea) {
-    const ta = rec.textarea;
-    const pos = ta.value.length;
-    ta.setRangeText(`!${code}`, pos, pos, "end");
-    ta.dispatchEvent(new Event("input", { bubbles: true }));
-  }
+// Boosts the default code-mixing language to the very top of the `!`
+// autocomplete popup, ahead of even rsml's own "! (unspecified language)"
+// entry. Reading rsml@3.2.0's source directly turned up the actual hook:
+// its "!" completion source builds `{ label: "! (unspecified language)",
+// boost: 1 }` followed by every real language with no boost field at all
+// (0), and CodeMirror's autocomplete ranks strictly by boost first
+// (score = matchScore + boost, sorted descending - see
+// @codemirror/autocomplete's sortOptions()), alphabetical only breaking
+// ties. There's no public RSMLAnnotator option that reaches that boost
+// value... but the method that builds it, `_cmComplete`, is invoked inside
+// the library's own closure as `self._cmComplete(ctx)` where `self` is the
+// annotator instance itself (captured once, not the shared prototype) - so
+// shadowing that one method on the instance intercepts every completion
+// this row's editor ever requests, cleanly, per row, without touching the
+// library's class or any other row.
+function patchCodeMixBoost(annotator) {
+  if (!annotator || annotator.__codemixPatched || typeof annotator._cmComplete !== "function") return;
+  annotator.__codemixPatched = true;
+  const original = annotator._cmComplete.bind(annotator);
+  annotator._cmComplete = (ctx) => {
+    const result = original(ctx);
+    const code = getState().defaultCodeMixLanguage;
+    if (code && result && Array.isArray(result.options)) {
+      const i = result.options.findIndex((o) => o.label === `!${code}`);
+      if (i > 0) {
+        const [opt] = result.options.splice(i, 1);
+        result.options.unshift({ ...opt, boost: 99 });
+      }
+    }
+    return result;
+  };
 }
 
 function speakerOptionsHtml(selectedId) {
@@ -825,7 +805,7 @@ function addSegment(start, end) {
     start: Math.max(0, Math.min(start, dur)),
     end: Math.max(start + 0.02, Math.min(end, dur)),
     rsml: "",
-    speaker: s.defaultSpeaker,
+    speaker: defaultSpeakerId(s),
     verified: false,
   };
   s.segments.push(seg);
@@ -959,7 +939,6 @@ function wireWaveformControls() {
   const spd = document.getElementById("set-speed");
   if (spd) {
     spd.value = String(getState().ui.speed || 1);
-    applySelect2(spd);
     spd.onchange = () => {
       getState().ui.speed = parseFloat(spd.value);
       if (wf.isReady()) wf.setSpeed(getState().ui.speed);

@@ -7,7 +7,7 @@ import * as wav from "./wav.js";
 import { parseSRT } from "./srt.js";
 import { mountEditor, unmountEditor } from "./editor.js";
 import { renderRsmlSettings } from "./rsmlSettings.js";
-import { renderCodeMixDefault, renderSpeakerSettings } from "./speakers.js";
+import { renderCodeMixDefault, renderSpeakerSettings, defaultSpeakerId } from "./speakers.js";
 
 // ---------------------------------------------------------------- state ----
 
@@ -17,9 +17,10 @@ const newState = () => ({
   updatedAt: Date.now(),
   audioMeta: null, // { name, type, size, duration }
   segments: [], // { id, start, end, rsml, speaker, verified } - speaker is a speakers[].id or null
-  speakers: [], // { id, gender, nativeLanguage } - id is stable: monotonic, never reused
-  defaultSpeaker: null, // a speakers[].id; used for every new segment, and bulk-appliable to all
-  defaultCodeMixLanguage: null, // language code; drives the quick-insert "!code" button per segment
+  speakers: [], // { id, gender, nativeLanguage } - id is stable: monotonic, never reused; id 1 is
+  // permanent (can't be removed) and doubles as "the" default speaker - see
+  // speakers.js's defaultSpeakerId().
+  defaultCodeMixLanguage: null, // language code; boosted to the top of the `!` autocomplete popup
   ui: { screen: "upload", zoom: 40, speed: 1 },
   // null until the user customizes something in Settings -> RSML tags; a
   // straight snapshot of an RSMLAnnotator's own .opts otherwise (see
@@ -179,7 +180,7 @@ export async function importSrt(srtFile) {
     toast("No cues found in that .srt file.", "error");
     return;
   }
-  const defaultSpeaker = state.defaultSpeaker;
+  const defaultSpeaker = defaultSpeakerId(state);
   state.segments = cues.map((c) => ({
     id: segId(),
     start: c.start,
@@ -260,7 +261,7 @@ export async function runManualVad() {
       spans.push({ start: start / 1000, end: end / 1000 });
     }
     spans.sort((a, b) => a.start - b.start);
-    const defaultSpeaker = state.defaultSpeaker;
+    const defaultSpeaker = defaultSpeakerId(state);
     state.segments = spans.map((sp) => ({
       id: segId(),
       start: sp.start,
@@ -411,7 +412,6 @@ function syncSettingsPanels() {
     scheduleSave,
     toast,
     escapeHtml,
-    onDefaultCodeMixChange: () => import("./editor.js").then((m) => m.refreshCodeMixButtons()),
   });
   renderSpeakerSettings(document.getElementById("speaker-roster-panel"), {
     getState,

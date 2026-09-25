@@ -7,8 +7,10 @@
 // never reused) - that id is what a segment's speaker dropdown stores and
 // what an annotator types as the N in &sN-start/&sN-end, so removing a
 // speaker must never renumber another one still referenced elsewhere.
-// Removal just filters the array (leaves a gap). No reorder UI - add, edit,
-// or delete only.
+// Removal just filters the array (leaves a gap), except id 1 itself, which
+// can never be removed - it doubles as "the" default speaker (see
+// defaultSpeakerId() below), so there's always one once any speaker exists.
+// No reorder UI - add, edit, or delete only.
 //
 // Takes its app-shell hooks as a `deps` parameter rather than importing
 // them from main.js/editor.js, keeping this a plain leaf module - see
@@ -17,17 +19,13 @@
 // statically with no cycle risk, unlike rsmlSettings.js's own dynamic
 // bridge back into editor.js).
 //
-// A "default code-mixing language reorders the ! popup" behavior was tried
-// and abandoned: confirmed live (not just from reading the rsml source)
-// that CodeMirror's autocomplete always sorts the `!` language list
-// alphabetically regardless of the order languages are supplied in, and the
-// only lever that actually controls display order, completion `boost`, is
-// hardcoded per-option inside rsml's own closed completion source, not
-// exposed through RSMLAnnotator's public options. The default here instead
-// drives a quick-insert button per segment (editor.js's
-// insertCodeMixTag/refreshCodeMixButtons) that inserts the tag directly at
-// the cursor - a mechanism fully within our own control (CM6's public
-// transaction API), not the library's popup at all.
+// The default code-mixing language boosts that language to the top of the
+// `!` autocomplete popup - see editor.js's patchCodeMixBoost() for how
+// (reading rsml's own source turned up the exact hook: its "!" completion
+// source hardcodes boost:1 on the "unspecified language" entry and no boost
+// at all on real languages, and `_cmComplete` is invoked as `self._cmComplete`
+// where `self` is the annotator instance itself, so shadowing that one
+// method on the instance intercepts it cleanly per row).
 import RSMLAnnotator from "https://cdn.jsdelivr.net/npm/rsml@3.2.0/rsml.esm.js";
 
 const GENDERS = [
@@ -119,7 +117,8 @@ export function renderCodeMixDefault(root, deps) {
   sel.onchange = () => {
     getState().defaultCodeMixLanguage = sel.value || null;
     scheduleSave();
-    deps.onDefaultCodeMixChange && deps.onDefaultCodeMixChange();
+    // No refresh call needed here - editor.js's patchCodeMixBoost() reads
+    // this setting fresh from state on every `!` completion it handles.
   };
 }
 
@@ -142,16 +141,13 @@ export function renderSpeakerSettings(root, deps) {
   const rowsHtml = state.speakers
     .map((sp) => {
       const label = escapeHtml(speakerLabel(sp));
-      const isDefault = state.defaultSpeaker === sp.id;
+      const locked = sp.id === 1;
       return `
     <div class="spk-row" data-id="${sp.id}">
-      <button type="button" class="spk-default-btn${isDefault ? " is-default" : ""}" title="${isDefault ? "Default speaker" : "Set as default for all segments"}">
-        <i class="bi ${isDefault ? "bi-star-fill" : "bi-star"}"></i>
-      </button>
-      <span class="spk-row-label">${label}</span>
+      <span class="spk-row-label">${label}${locked ? ' <span class="spk-default-tag">default</span>' : ""}</span>
       <span class="flex-spacer"></span>
       <button type="button" class="spk-edit" aria-label="Edit ${label}">Edit</button>
-      <button type="button" class="spk-remove" aria-label="Remove ${label}">&times;</button>
+      <button type="button" class="spk-remove" aria-label="Remove ${label}"${locked ? ` disabled title="Speaker 1 can't be removed"` : ""}>&times;</button>
     </div>`;
     })
     .join("");
@@ -169,39 +165,30 @@ export function renderSpeakerSettings(root, deps) {
       if (sp) openSpeakerModal(deps, { editSpeaker: sp });
     };
   });
-  root.querySelectorAll(".spk-default-btn").forEach((btn) => {
-    btn.onclick = () => setDefaultSpeaker(deps, parseInt(btn.closest(".spk-row").dataset.id, 10));
-  });
   root.querySelector(".spk-add").onclick = () => openSpeakerModal(deps, {});
 }
 
+// Speaker 1 is permanent - it's the one always-available default for a new
+// segment (see defaultSpeakerId() below), so letting it be removed could
+// leave a project with no default at all.
 export function removeSpeaker(deps, id) {
+  if (id === 1) {
+    deps.toast && deps.toast("Speaker 1 can't be removed - it's the default speaker.", "error");
+    return;
+  }
   const state = deps.getState();
   state.speakers = state.speakers.filter((s) => s.id !== id);
-  if (state.defaultSpeaker === id) state.defaultSpeaker = null;
   deps.scheduleSave();
   refreshRosterPanel(deps);
   deps.onRosterChange && deps.onRosterChange();
 }
 
-// Sets `id` as the project's default speaker AND (after confirming, since
-// this overwrites existing per-segment choices) assigns it to every
-// segment right now - "default" here means the one true speaker for this
-// project, not just a seed for new segments.
-export function setDefaultSpeaker(deps, id) {
-  const state = deps.getState();
-  const sp = state.speakers.find((s) => s.id === id);
-  if (!sp) return;
-  const n = state.segments.length;
-  const msg = n
-    ? `Set ${speakerLabel(sp)} as the default speaker? This assigns them to all ${n} segment${n === 1 ? "" : "s"}, replacing any individual choices already made.`
-    : `Set ${speakerLabel(sp)} as the default speaker?`;
-  if (!confirm(msg)) return;
-  state.defaultSpeaker = id;
-  for (const seg of state.segments) seg.speaker = id;
-  deps.scheduleSave();
-  refreshRosterPanel(deps);
-  deps.onRosterChange && deps.onRosterChange();
+// "Speaker 1 is default": the very first speaker ever added to a project
+// always gets id 1 (see nextSpeakerId()) and id 1 can never be removed (see
+// removeSpeaker()), so this is just "does speaker 1 exist yet" - no separate
+// project-level default field to keep in sync.
+export function defaultSpeakerId(state) {
+  return state.speakers.some((s) => s.id === 1) ? 1 : null;
 }
 
 // ---------------------------------------------------------------- modal ----
@@ -237,7 +224,6 @@ export function openSpeakerModal(deps, { onSaved, editSpeaker } = {}) {
         ${languageOptions(languages, currentLang, escapeHtml)}
       </select>
     </div>`;
-  applySelect2(document.getElementById("speaker-modal-gender"));
   applySelect2(document.getElementById("speaker-modal-lang"));
 
   const close = () => {
