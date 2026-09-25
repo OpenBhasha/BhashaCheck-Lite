@@ -143,6 +143,22 @@
           <div id="rsml-tags-panel"></div>
         </section>
         <section>
+          <h4>Languages</h4>
+          <p class="muted small">The native language pre-fills new speakers below.</p>
+          <div id="language-defaults-panel"></div>
+        </section>
+        <section>
+          <h4>Speakers</h4>
+          <p class="muted small">
+            Each segment has a speaker dropdown, defaulting to the first speaker here. For a segment
+            with more than one speaker, wrap the minority speaker's words with
+            <code>&amp;sN-start</code> / <code>&amp;sN-end</code> in the RSML text (autocompletes as you
+            type). Removing or reordering a speaker changes their number for new use only - it never
+            renumbers a speaker already assigned to a segment or typed into <code>&amp;sN</code> text.
+          </p>
+          <div id="speaker-roster-panel"></div>
+        </section>
+        <section>
           <h4>Project</h4>
           <button id="drawer-startover" class="btn btn-sm btn-outline-danger">Start over</button>
           <p class="muted small">Deletes this project (segments, audio, progress) from the browser.</p>
@@ -171,6 +187,19 @@
           <dt><kbd>Ctrl</kbd> + <kbd>/</kbd></dt>
           <dd>Toggle this panel</dd>
         </dl>
+      </div>
+    </div>
+
+    <div id="speaker-modal-backdrop" class="drawer-backdrop" hidden></div>
+    <div id="speaker-modal" class="shortcuts-modal" hidden role="dialog" aria-modal="true" aria-label="Add speaker">
+      <div class="shortcuts-modal-head">
+        <strong>Add speaker</strong>
+        <button type="button" class="icon-btn speaker-modal-cancel" aria-label="Cancel"><i class="bi bi-x-lg"></i></button>
+      </div>
+      <div class="shortcuts-modal-body speaker-modal-body"></div>
+      <div class="speaker-modal-foot">
+        <button type="button" class="btn btn-sm btn-outline-secondary speaker-modal-cancel">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary speaker-modal-save">Add speaker</button>
       </div>
     </div>
 

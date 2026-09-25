@@ -21,6 +21,7 @@ import {
 import * as wav from "./wav.js";
 import * as wf from "./waveform.js";
 import { buildSRT, downloadSRT } from "./srt.js";
+import { speakerLabel, openSpeakerModal } from "./speakers.js";
 
 const ACTIVATE_MARGIN = "600px"; // IntersectionObserver rootMargin
 const ACTIVATE_DIST = 500; // px from the scroll viewport within which the sweep also activates
@@ -288,7 +289,7 @@ function buildRow(seg) {
     <div class="seg-bar">
       <input type="checkbox" class="seg-check" ${seg.verified ? "checked" : ""} title="Mark this segment verified" />
       <span class="seg-idx">0</span>
-      ${seg.speaker ? `<span class="seg-spk" title="from diarization">${escapeHtml(seg.speaker)}</span>` : ""}
+      <select class="seg-speaker" title="Speaker">${speakerOptionsHtml(seg.speaker)}</select>
       <div class="time-group" data-edge="start">${timeInputs(seg.start)}</div>
       <span class="time-sep">&rarr;</span>
       <div class="time-group" data-edge="end">${timeInputs(seg.end)}</div>
@@ -314,6 +315,7 @@ function buildRow(seg) {
     idx: row.querySelector(".seg-idx"),
     dur: row.querySelector(".seg-dur"),
     play: row.querySelector(".seg-play"),
+    speaker: row.querySelector(".seg-speaker"),
     starts: row.querySelectorAll('.time-group[data-edge="start"] input'),
     ends: row.querySelectorAll('.time-group[data-edge="end"] input'),
   };
@@ -370,6 +372,23 @@ function buildRow(seg) {
     seg.verified = els.check.checked;
     row.classList.toggle("verified", seg.verified);
     updateVerifyCount();
+    scheduleSave();
+  };
+  els.speaker.onchange = () => {
+    if (els.speaker.value === "__add__") {
+      // Reset the visible selection back to whatever's actually assigned
+      // while the modal is open, rather than sitting on "+ Add new speaker".
+      els.speaker.innerHTML = speakerOptionsHtml(seg.speaker);
+      openSpeakerModal(speakerDeps(), {
+        onSaved: (sp) => {
+          seg.speaker = sp.id;
+          scheduleSave();
+          els.speaker.innerHTML = speakerOptionsHtml(seg.speaker);
+        },
+      });
+      return;
+    }
+    seg.speaker = parseInt(els.speaker.value, 10);
     scheduleSave();
   };
   // A click anywhere in the row (bar, times, textarea, preview, buttons) marks
@@ -497,6 +516,35 @@ export function applyRsmlChange(category, action, value, label) {
       console.warn(`RSMLAnnotator.${action}("${category}", ...) failed on an open row`, err);
     }
   }
+}
+
+// Called after the speaker roster changes (add/remove/reorder), from either
+// the settings drawer or a segment's own "+ Add new speaker" — rebuilds
+// every row's speaker <select> options against the current roster.
+export function refreshSpeakerDropdowns() {
+  for (const rec of rows.values()) {
+    rec.els.speaker.innerHTML = speakerOptionsHtml(rec.seg.speaker);
+  }
+}
+
+function speakerOptionsHtml(selectedId) {
+  const speakers = getState().speakers;
+  // A native <select> with no option explicitly marked selected silently
+  // shows the first option anyway — misleading here, since that would make
+  // an unset segment *look* assigned to speaker 1 without seg.speaker
+  // actually holding that value. An explicit placeholder keeps the two in
+  // sync; it only ever appears while nothing real has been chosen yet.
+  let html = selectedId == null ? `<option value="" selected disabled>Not set</option>` : "";
+  html += speakers.map((sp) => `<option value="${sp.id}"${sp.id === selectedId ? " selected" : ""}>${escapeHtml(speakerLabel(sp))}</option>`).join("");
+  if (selectedId != null && !speakers.some((sp) => sp.id === selectedId)) {
+    html += `<option value="${selectedId}" selected disabled>Speaker ${selectedId} (removed)</option>`;
+  }
+  html += `<option value="__add__">+ Add new speaker</option>`;
+  return html;
+}
+
+function speakerDeps() {
+  return { getState, scheduleSave, toast, escapeHtml, onRosterChange: refreshSpeakerDropdowns };
 }
 
 function enforceCap(keepId) {
@@ -723,7 +771,7 @@ function addSegment(start, end) {
     start: Math.max(0, Math.min(start, dur)),
     end: Math.max(start + 0.02, Math.min(end, dur)),
     rsml: "",
-    speaker: null,
+    speaker: s.speakers[0]?.id ?? null,
     verified: false,
   };
   s.segments.push(seg);
@@ -835,7 +883,7 @@ function wireChrome() {
       return;
     }
     const name = (s.audioMeta && s.audioMeta.name) || "transcript";
-    downloadSRT(name, buildSRT(s.segments));
+    downloadSRT(name, buildSRT(s.segments, s.speakers));
   });
 }
 

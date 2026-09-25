@@ -43,12 +43,28 @@ export function parseSRT(text) {
   return out;
 }
 
-export function buildSRT(segments) {
+const GENDER_LABELS = { male: "Male", female: "Female", other: "Other", unspecified: "Unspecified" };
+
+// A "Speaker N (gender, lang)" line before the segment's own text when it
+// has an assigned speaker (any &sN-start/&sN-end an annotator typed for a
+// minority/interjecting speaker is already part of seg.rsml and passes
+// through unchanged — this is only the segment's own default speaker).
+function speakerHeaderLine(speakerId, speakers) {
+  if (speakerId == null) return null;
+  const sp = (speakers || []).find((s) => s.id === speakerId);
+  if (!sp) return `Speaker ${speakerId}`;
+  const gender = GENDER_LABELS[sp.gender] || "Unspecified";
+  return `Speaker ${sp.id} (${gender}, ${sp.nativeLanguage || "?"})`;
+}
+
+export function buildSRT(segments, speakers) {
   const rows = [...segments].sort((a, b) => a.start - b.start);
   const lines = [];
   rows.forEach((seg, idx) => {
     lines.push(String(idx + 1));
     lines.push(`${secondsToSrt(seg.start)} --> ${secondsToSrt(seg.end)}`);
+    const header = speakerHeaderLine(seg.speaker, speakers);
+    if (header) lines.push(header);
     lines.push((seg.rsml || "").trim());
     lines.push("");
   });

@@ -271,7 +271,7 @@ export function setRegions(segments) {
         color: seg.verified ? REGION_COLOR_VERIFIED : REGION_COLOR,
         drag: true,
         resize: true,
-        content: seg.speaker || String(i + 1),
+        content: String(i + 1),
       });
     });
   } finally {

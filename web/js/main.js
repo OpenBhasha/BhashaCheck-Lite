@@ -7,6 +7,7 @@ import * as wav from "./wav.js";
 import { parseSRT } from "./srt.js";
 import { mountEditor, unmountEditor } from "./editor.js";
 import { renderRsmlSettings } from "./rsmlSettings.js";
+import { renderLanguageDefaults, renderSpeakerSettings } from "./speakers.js";
 
 // ---------------------------------------------------------------- state ----
 
@@ -15,7 +16,9 @@ const newState = () => ({
   createdAt: Date.now(),
   updatedAt: Date.now(),
   audioMeta: null, // { name, type, size, duration }
-  segments: [], // { id, start, end, rsml, speaker, verified }
+  segments: [], // { id, start, end, rsml, speaker, verified } - speaker is a speakers[].id or null
+  speakers: [], // { id, gender, nativeLanguage } - id is stable: monotonic, never reused or reindexed
+  defaultNativeLanguage: null, // language code; pre-fills a new speaker's native-language field
   ui: { screen: "upload", zoom: 40, speed: 1 },
   // null until the user customizes something in Settings -> RSML tags; a
   // straight snapshot of an RSMLAnnotator's own .opts otherwise (see
@@ -158,7 +161,7 @@ function wireUpload() {
 
 async function handleAudioFile(file) {
   state = newState();
-  syncRsmlSettingsPanel(); // new project: reset the RSML-tags panel to it, not the old one
+  syncSettingsPanels(); // new project: reset the settings panels to it, not the old one's
   state.audioMeta = { name: file.name, type: file.type, size: file.size, duration: 0 };
   await setWorkingAudio(file);
   await saveNow();
@@ -175,12 +178,13 @@ export async function importSrt(srtFile) {
     toast("No cues found in that .srt file.", "error");
     return;
   }
+  const defaultSpeaker = state.speakers[0]?.id ?? null;
   state.segments = cues.map((c) => ({
     id: segId(),
     start: c.start,
     end: c.end,
     rsml: c.text,
-    speaker: null,
+    speaker: defaultSpeaker,
     verified: false,
   }));
   await saveNow();
@@ -255,12 +259,13 @@ export async function runManualVad() {
       spans.push({ start: start / 1000, end: end / 1000 });
     }
     spans.sort((a, b) => a.start - b.start);
+    const defaultSpeaker = state.speakers[0]?.id ?? null;
     state.segments = spans.map((sp) => ({
       id: segId(),
       start: sp.start,
       end: sp.end,
       rsml: "",
-      speaker: null,
+      speaker: defaultSpeaker,
       verified: false,
     }));
     await saveNow();
@@ -380,24 +385,38 @@ async function rehydrate() {
   return true;
 }
 
-// Rebuilds the settings drawer's RSML-tags panel against whatever project
-// is current right now. Called once at boot, and again any time `state` is
-// wholesale-replaced (a new audio upload starts a fresh project) — without
-// this, the panel's own internal RSMLAnnotator (see rsmlSettings.js) would
-// keep showing/editing the *previous* project's vocabulary.
+// Rebuilds every settings-drawer panel (RSML tags, language defaults, speaker
+// roster) against whatever project is current right now. Called once at
+// boot, and again any time `state` is wholesale-replaced (a new audio upload
+// starts a fresh project) — without this, the RSML-tags panel's own internal
+// RSMLAnnotator (see rsmlSettings.js) would keep showing/editing the
+// *previous* project's vocabulary, and the other two panels would too.
 //
 // applyToOpenRows is fetched via a dynamic import() rather than a static
 // one, purely to avoid growing editor.js's existing cyclic import list (see
 // rsmlSettings.js's header comment) — editor.js is already fully loaded by
 // this point via the static import above, so this just reads a property
 // off its already-resolved module namespace.
-function syncRsmlSettingsPanel() {
+function syncSettingsPanels() {
   renderRsmlSettings(document.getElementById("rsml-tags-panel"), {
     getState,
     scheduleSave,
     toast,
     escapeHtml,
     applyToOpenRows: (...args) => import("./editor.js").then((m) => m.applyRsmlChange(...args)),
+  });
+  renderLanguageDefaults(document.getElementById("language-defaults-panel"), {
+    getState,
+    scheduleSave,
+    toast,
+    escapeHtml,
+  });
+  renderSpeakerSettings(document.getElementById("speaker-roster-panel"), {
+    getState,
+    scheduleSave,
+    toast,
+    escapeHtml,
+    onRosterChange: () => import("./editor.js").then((m) => m.refreshSpeakerDropdowns()),
   });
 }
 
@@ -409,7 +428,7 @@ async function boot() {
   const had = await rehydrate();
   // After rehydrate, since it may have replaced `state` wholesale — render
   // against the final object, not the pre-rehydrate placeholder.
-  syncRsmlSettingsPanel();
+  syncSettingsPanels();
   if (had && (state.segments.length || state.audioMeta)) {
     const saved = state.ui.screen === "stages" ? "setup" : state.ui.screen; // old name, pre-rename saves
     const target = saved && saved !== "upload" ? saved : state.segments.length ? "editor" : "setup";

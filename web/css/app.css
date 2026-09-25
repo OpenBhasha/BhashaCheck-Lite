@@ -220,12 +220,15 @@ main > section { flex: 1; min-height: 0; }
   align-items: center;
   justify-content: center;
 }
-.seg-spk {
+.seg-speaker {
   font-size: 11px;
+  padding: 2px 4px;
+  height: 26px;
+  max-width: 160px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
   background: var(--accent-soft);
   color: var(--accent-ink);
-  border-radius: 6px;
-  padding: 1px 7px;
 }
 .seg-dur { font-size: 11px; color: var(--muted); font-family: var(--mono); }
 
@@ -580,6 +583,41 @@ main > section { flex: 1; min-height: 0; }
 }
 .rsml-map-row button:hover { color: var(--err); }
 .rsml-reset { padding: 0; font-size: 12px; }
+
+/* Speaker roster (drawer -> Speakers) */
+.spk-rows { margin-bottom: 8px; }
+.spk-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 0;
+  border-bottom: 1px dotted var(--line);
+  font-size: 12.5px;
+}
+.spk-row:last-child { border-bottom: none; }
+.spk-row-label { color: var(--ink); }
+.spk-move,
+.spk-remove {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 5px;
+  cursor: pointer;
+}
+.spk-move:disabled { opacity: 0.3; cursor: default; }
+.spk-move:not(:disabled):hover { color: var(--accent-ink); }
+.spk-remove:hover { color: var(--err); }
+
+/* Add-speaker modal (reuses .shortcuts-modal chrome) */
+.speaker-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px 16px;
+  border-top: 1px solid var(--line);
+}
 
 /* -------------------------------------------------------------- toasts -- */
 .toast-area {
