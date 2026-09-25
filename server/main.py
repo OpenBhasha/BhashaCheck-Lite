@@ -44,6 +44,20 @@ os.makedirs(settings.work_dir, exist_ok=True)
 
 _WEB_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "web"))
 if settings.serve_web and os.path.isdir(_WEB_DIR):
+    # StaticFiles sends ETag/Last-Modified but no Cache-Control, so browsers
+    # are free to apply heuristic caching (RFC 7234 4.2.2) and reuse a stale
+    # response from disk cache with zero network round-trip — no 304, no
+    # revalidation, nothing that shows up as "the file changed". That's
+    # exactly wrong for a dev server whose whole premise is edit-and-reload.
+    # `no-cache` (not `no-store`) keeps the ETag fast-path: still forces a
+    # round-trip, but an unchanged file still gets a cheap 304.
+    @app.middleware("http")
+    async def _no_cache_static(request, call_next):
+        response = await call_next(request)
+        if not request.url.path.startswith("/api"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     # Mounted last so /api/* routes above win.
     app.mount("/", StaticFiles(directory=_WEB_DIR, html=True), name="web")
     logging.getLogger(__name__).info("Serving frontend from %s", _WEB_DIR)

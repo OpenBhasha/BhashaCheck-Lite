@@ -7,6 +7,7 @@ import * as wav from "./wav.js";
 import { parseSRT } from "./srt.js";
 import { renderStages, wireStagesNav } from "./stages.js";
 import { mountEditor, unmountEditor } from "./editor.js";
+import { renderRsmlSettings } from "./rsmlSettings.js";
 
 // ---------------------------------------------------------------- state ----
 
@@ -19,6 +20,12 @@ const newState = () => ({
   transcription: { model: "whisper", apiKey: "" }, // language is per-segment now
   segments: [], // { id, start, end, rsml, speaker, status, verified, language }
   ui: { screen: "upload", zoom: 40, speed: 1 },
+  // null until the user customizes something in Settings -> RSML tags; a
+  // straight snapshot of an RSMLAnnotator's own .opts otherwise (see
+  // rsmlSettings.js). The library's own built-in defaults apply until then
+  // — editor.js spreads this in as-is when constructing each segment's
+  // annotator.
+  rsmlConfig: null,
 });
 
 let state = newState();
@@ -161,6 +168,7 @@ function wireUpload() {
 
 async function handleAudioFile(file) {
   state = newState();
+  syncRsmlSettingsPanel(); // new project: reset the RSML-tags panel to it, not the old one
   state.audioMeta = { name: file.name, type: file.type, size: file.size, duration: 0, hasProcessed: false };
   await storage.deleteAudio("processed").catch(() => {});
   await setWorkingAudio(file, { processed: false });
@@ -276,6 +284,23 @@ async function rehydrate() {
   }
   delete state.transcription.language;
 
+  // Migrate: state.rsmlConfig existed before this app switched to
+  // rsml@3.2.0's native add()/remove(). The old code stored the "isolated
+  // @-tag" categories as bare names; the library itself always stores them
+  // "@"-prefixed, and a bare-named entry saved under the old shape won't
+  // compare equal to anything the library's own add()/remove() produce.
+  // Rather than trying to salvage it, discard it outright — the library's
+  // own current defaults are strictly better than stale, wrongly-shaped
+  // data (and this is a one-time migration: state.rsmlConfig is always
+  // written back in the library's own normalized shape from here on).
+  const ISOLATED_TAG_CATEGORIES = ["hesitations", "isolatedParalinguistics", "isolatedOther"];
+  if (
+    state.rsmlConfig &&
+    ISOLATED_TAG_CATEGORIES.some((k) => (state.rsmlConfig[k] || []).some((tag) => !tag.startsWith("@")))
+  ) {
+    state.rsmlConfig = null;
+  }
+
   if (state.audioMeta) {
     const blob =
       (state.audioMeta.hasProcessed && (await storage.getAudio("processed"))) ||
@@ -293,6 +318,27 @@ async function rehydrate() {
   return true;
 }
 
+// Rebuilds the settings drawer's RSML-tags panel against whatever project
+// is current right now. Called once at boot, and again any time `state` is
+// wholesale-replaced (a new audio upload starts a fresh project) — without
+// this, the panel's own internal RSMLAnnotator (see rsmlSettings.js) would
+// keep showing/editing the *previous* project's vocabulary.
+//
+// applyToOpenRows is fetched via a dynamic import() rather than a static
+// one, purely to avoid growing editor.js's existing cyclic import list (see
+// rsmlSettings.js's header comment) — editor.js is already fully loaded by
+// this point via the static import above, so this just reads a property
+// off its already-resolved module namespace.
+function syncRsmlSettingsPanel() {
+  renderRsmlSettings(document.getElementById("rsml-tags-panel"), {
+    getState,
+    scheduleSave,
+    toast,
+    escapeHtml,
+    applyToOpenRows: (...args) => import("./editor.js").then((m) => m.applyRsmlChange(...args)),
+  });
+}
+
 async function boot() {
   wireUpload();
   wireHeader();
@@ -300,6 +346,9 @@ async function boot() {
   await checkService();
 
   const had = await rehydrate();
+  // After rehydrate, since it may have replaced `state` wholesale — render
+  // against the final object, not the pre-rehydrate placeholder.
+  syncRsmlSettingsPanel();
   if (had && (state.segments.length || state.audioMeta)) {
     const saved = state.ui.screen;
     const target = saved && saved !== "upload" ? saved : state.segments.length ? "editor" : "stages";
@@ -310,4 +359,12 @@ async function boot() {
   }
 }
 
-document.addEventListener("DOMContentLoaded", boot);
+// DOMContentLoaded may already have fired by the time this module (deferred,
+// like all type="module" scripts) actually executes — a static <script>-tag
+// listener registered after the fact would then just never run. Firing
+// immediately when the document is already past "loading" covers that.
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", boot);
+} else {
+  boot();
+}

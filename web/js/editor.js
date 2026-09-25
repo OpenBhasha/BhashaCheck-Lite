@@ -8,7 +8,7 @@
 // (IntersectionObserver + a backstop sweep) and torn down once they scroll
 // far away. A collapsed row is just a bit of text.
 
-import RSMLAnnotator from "https://cdn.jsdelivr.net/npm/rsml@3/rsml.esm.js";
+import RSMLAnnotator from "https://cdn.jsdelivr.net/npm/rsml@3.2.0/rsml.esm.js";
 import {
   getState,
   runtime,
@@ -354,7 +354,10 @@ function activate(id, { focus }) {
   // validation, live preview). If it throws, fall back to a plain textarea that
   // at least mirrors its text into the preview.
   try {
-    rec.annotator = new RSMLAnnotator({ textarea: ta, output: rec.output });
+    // state.rsmlConfig is a straight snapshot of a prior RSMLAnnotator's
+    // .opts (see rsmlSettings.js), so it can be spread in as-is — same
+    // shape the constructor already expects.
+    rec.annotator = new RSMLAnnotator({ textarea: ta, output: rec.output, ...(getState().rsmlConfig || {}) });
   } catch (err) {
     console.warn("RSMLAnnotator failed, plain textarea fallback", err);
     rec.annotator = null;
@@ -393,6 +396,23 @@ function deactivate(id) {
   rec.active = false;
   rec.el.classList.remove("cm-live");
   setCollapsed(rec);
+}
+
+// Called from the settings drawer after an RSMLAnnotator.add()/.remove()
+// on the shared config instance (see rsmlSettings.js). Replays the exact
+// same call on every already-active row's own annotator — rsml@3.2.0's
+// add/remove update a live instance in place (re-render + CM6 decoration
+// refresh included), so this needs no rebuild and is safe even on a row
+// that's currently focused/mid-edit.
+export function applyRsmlChange(category, action, value, label) {
+  for (const rec of rows.values()) {
+    if (!rec.active || !rec.annotator) continue;
+    try {
+      rec.annotator[action](category, value, label);
+    } catch (err) {
+      console.warn(`RSMLAnnotator.${action}("${category}", ...) failed on an open row`, err);
+    }
+  }
 }
 
 function enforceCap(keepId) {
@@ -686,7 +706,7 @@ function wireWaveformControls() {
     };
   }
 
-  const spd = document.getElementById("set-speed"); // lives in the settings drawer
+  const spd = document.getElementById("set-speed");
   if (spd) {
     spd.value = String(getState().ui.speed || 1);
     spd.onchange = () => {
