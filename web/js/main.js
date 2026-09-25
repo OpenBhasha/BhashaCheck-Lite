@@ -1,11 +1,10 @@
-// App shell: state, persistence, screen routing, the upload screen, and
-// rehydration on load. stages.js and editor.js import the helpers exported here.
+// App shell: state, persistence, screen routing, the upload/setup screens
+// (upload audio, then import an SRT or run client-side VAD), and rehydration
+// on load. editor.js imports the helpers exported here.
 
 import * as storage from "./storage.js";
-import * as api from "./api.js";
 import * as wav from "./wav.js";
 import { parseSRT } from "./srt.js";
-import { renderStages, wireStagesNav } from "./stages.js";
 import { mountEditor, unmountEditor } from "./editor.js";
 import { renderRsmlSettings } from "./rsmlSettings.js";
 
@@ -15,10 +14,8 @@ const newState = () => ({
   version: 1,
   createdAt: Date.now(),
   updatedAt: Date.now(),
-  audioMeta: null, // { name, type, size, duration, hasProcessed }
-  stageStatus: { musicRemoval: "pending", segmentation: "pending", diarization: "pending" },
-  transcription: { model: "whisper", apiKey: "" }, // language is per-segment now
-  segments: [], // { id, start, end, rsml, speaker, status, verified, language }
+  audioMeta: null, // { name, type, size, duration }
+  segments: [], // { id, start, end, rsml, speaker, status, verified }
   ui: { screen: "upload", zoom: 40, speed: 1 },
   // null until the user customizes something in Settings -> RSML tags; a
   // straight snapshot of an RSMLAnnotator's own .opts otherwise (see
@@ -33,10 +30,6 @@ let state = newState();
 // Not persisted; rebuilt each session.
 export const runtime = {
   workingBlob: null,
-  originalBlob: null,
-  models: [],
-  languages: [],
-  serviceOk: false,
 };
 
 export function getState() {
@@ -112,7 +105,6 @@ export async function showScreen(name) {
   }
   document.body.dataset.screen = name;
 
-  if (name === "stages") renderStages();
   if (name === "editor") await mountEditor();
   else unmountEditor();
 
@@ -121,11 +113,9 @@ export async function showScreen(name) {
 
 // ------------------------------------------------------- working audio ----
 
-export async function setWorkingAudio(blob, { processed = false } = {}) {
+export async function setWorkingAudio(blob) {
   runtime.workingBlob = blob;
-  await storage.putAudio(processed ? "processed" : "original", blob);
-  if (!processed) runtime.originalBlob = blob;
-  if (state.audioMeta) state.audioMeta.hasProcessed = processed || state.audioMeta.hasProcessed;
+  await storage.putAudio("audio", blob);
   try {
     const info = await wav.loadAudio(blob);
     if (state.audioMeta) state.audioMeta.duration = info.duration;
@@ -169,17 +159,15 @@ function wireUpload() {
 async function handleAudioFile(file) {
   state = newState();
   syncRsmlSettingsPanel(); // new project: reset the RSML-tags panel to it, not the old one
-  state.audioMeta = { name: file.name, type: file.type, size: file.size, duration: 0, hasProcessed: false };
-  await storage.deleteAudio("processed").catch(() => {});
-  await setWorkingAudio(file, { processed: false });
+  state.audioMeta = { name: file.name, type: file.type, size: file.size, duration: 0 };
+  await setWorkingAudio(file);
   await saveNow();
   toast(`Loaded ${file.name}`, "success");
-  showScreen("stages");
+  showScreen("setup");
 }
 
-// SRT import happens AFTER audio, from the stages screen. It keeps the audio
-// already loaded, fills the segments from the cues, marks every stage skipped,
-// and jumps to the editor.
+// SRT import happens AFTER audio, from the setup screen. It keeps the audio
+// already loaded, fills the segments from the cues, and jumps to the editor.
 export async function importSrt(srtFile) {
   const text = await srtFile.text();
   const cues = parseSRT(text);
@@ -187,7 +175,6 @@ export async function importSrt(srtFile) {
     toast("No cues found in that .srt file.", "error");
     return;
   }
-  state.stageStatus = { musicRemoval: "skipped", segmentation: "skipped", diarization: "skipped" };
   state.segments = cues.map((c) => ({
     id: segId(),
     start: c.start,
@@ -196,17 +183,100 @@ export async function importSrt(srtFile) {
     speaker: null,
     status: c.text.trim() ? "done" : "empty",
     verified: false,
-    language: "",
   }));
   await saveNow();
   toast(`Imported ${cues.length} segments from ${srtFile.name}`, "success");
   showScreen("editor");
 }
 
-export async function skipAllStages() {
-  state.stageStatus = { musicRemoval: "skipped", segmentation: "skipped", diarization: "skipped" };
-  await saveNow();
-  showScreen("editor");
+// Lazy-loaded on first use so a plain SRT-import project never pays for the
+// VAD/ONNX-runtime download. vad-web's bundle is a UMD build that expects a
+// global `ort` to already exist (it does NOT bundle onnxruntime-web itself),
+// so onnxruntime-web's own global build has to load first, in order; only
+// then does bundle.min.js set the global `vad`.
+let vadLoadPromise = null;
+const VAD_WEB_VERSION = "0.0.31";
+const ORT_VERSION = "1.22.0";
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error(`could not load ${src}`));
+    document.head.appendChild(s);
+  });
+}
+function loadVadLib() {
+  if (window.vad) return Promise.resolve();
+  if (vadLoadPromise) return vadLoadPromise;
+  vadLoadPromise = (async () => {
+    if (!window.ort) await loadScript(`https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/ort.min.js`);
+    await loadScript(`https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@${VAD_WEB_VERSION}/dist/bundle.min.js`);
+  })();
+  return vadLoadPromise;
+}
+
+// "Continue manually": runs a browser-side Silero VAD pass (via
+// @ricky0123/vad-web's NonRealTimeVAD, no server involved) over the already-
+// decoded audio to seed segments automatically, then opens the editor either
+// way — on any failure (no network for the CDN model on first use, browser
+// unsupported, etc.) it still opens the editor with zero segments so the
+// user can draw them by hand with "Add segment at playhead".
+export async function runManualVad() {
+  const btn = document.getElementById("setup-manual-btn");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Analyzing audio...";
+  }
+  try {
+    const samples = wav.getMonoSamples();
+    if (!samples) throw new Error("no audio loaded");
+    await loadVadLib();
+    const detector = await window.vad.NonRealTimeVAD.new({
+      baseAssetPath: `https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@${VAD_WEB_VERSION}/dist/`,
+      onnxWASMBasePath: `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`,
+    });
+    const spans = [];
+    for await (const { start, end } of detector.run(samples.data, samples.sampleRate)) {
+      spans.push({ start: start / 1000, end: end / 1000 });
+    }
+    spans.sort((a, b) => a.start - b.start);
+    state.segments = spans.map((sp) => ({
+      id: segId(),
+      start: sp.start,
+      end: sp.end,
+      rsml: "",
+      speaker: null,
+      status: "empty",
+      verified: false,
+    }));
+    await saveNow();
+    toast(
+      spans.length ? `Found ${spans.length} speech segments.` : "No speech detected - add segments manually in the editor.",
+      spans.length ? "success" : "info"
+    );
+  } catch (err) {
+    console.warn("client-side VAD failed", err);
+    toast(`Automatic segmentation failed (${err.message || err}). Opening the editor - add segments manually.`, "warn");
+  } finally {
+    showScreen("editor");
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Continue manually";
+    }
+  }
+}
+
+function wireSetupNav() {
+  const back = document.getElementById("setup-back-btn");
+  if (back)
+    back.onclick = () => {
+      if (confirm("Go back to upload? Your current work stays saved and you can restore it.")) showScreen("upload");
+    };
+  const srtBtn = document.getElementById("setup-srt-btn");
+  if (srtBtn) srtBtn.onclick = () => document.getElementById("srt-input").click();
+  const manualBtn = document.getElementById("setup-manual-btn");
+  if (manualBtn) manualBtn.onclick = runManualVad;
 }
 
 // ------------------------------------------------------- settings drawer ----
@@ -240,49 +310,15 @@ export async function resetAll() {
   location.reload();
 }
 
-async function checkService() {
-  const banner = document.getElementById("service-banner");
-  try {
-    const h = await api.health();
-    runtime.serviceOk = true;
-    if (!h.ffmpeg) {
-      banner.hidden = false;
-      banner.textContent = h.ffmpegMessage || "FFmpeg not found on the server PATH, so audio processing will fail.";
-      banner.className = "service-banner warn";
-    } else {
-      banner.hidden = true;
-    }
-  } catch (err) {
-    runtime.serviceOk = false;
-    banner.hidden = false;
-    banner.textContent = `ML service not reachable at ${api.apiBase()}. Start it with: cd v2/server && uvicorn main:app --port 8000`;
-    banner.className = "service-banner error";
-  }
-  try {
-    const m = await api.getModels();
-    runtime.models = m.models || [];
-    runtime.languages = m.languages || [];
-  } catch {
-    runtime.models = [{ id: "whisper", label: "Whisper (local)", kind: "local", available: true, note: "" }];
-    runtime.languages = [{ code: "", label: "Auto-detect" }];
-  }
-}
-
 async function rehydrate() {
   const saved = await storage.loadState();
   if (!saved) return false;
   state = Object.assign(newState(), saved);
   state.ui = Object.assign(newState().ui, saved.ui || {});
-  state.transcription = Object.assign(newState().transcription, saved.transcription || {});
 
-  // Migrate: language used to be one universal setting; it is per-segment now.
-  const legacyLang = (saved.transcription && saved.transcription.language) || "";
   for (const seg of state.segments || []) {
-    if (seg.language == null) seg.language = legacyLang;
     if (seg.verified == null) seg.verified = false;
-    delete seg.selected;
   }
-  delete state.transcription.language;
 
   // Migrate: state.rsmlConfig existed before this app switched to
   // rsml@3.2.0's native add()/remove(). The old code stored the "isolated
@@ -302,12 +338,9 @@ async function rehydrate() {
   }
 
   if (state.audioMeta) {
-    const blob =
-      (state.audioMeta.hasProcessed && (await storage.getAudio("processed"))) ||
-      (await storage.getAudio("original"));
+    const blob = await storage.getAudio("audio");
     if (blob) {
       runtime.workingBlob = blob;
-      runtime.originalBlob = (await storage.getAudio("original")) || blob;
       try {
         await wav.loadAudio(blob);
       } catch (err) {
@@ -342,16 +375,15 @@ function syncRsmlSettingsPanel() {
 async function boot() {
   wireUpload();
   wireHeader();
-  wireStagesNav();
-  await checkService();
+  wireSetupNav();
 
   const had = await rehydrate();
   // After rehydrate, since it may have replaced `state` wholesale — render
   // against the final object, not the pre-rehydrate placeholder.
   syncRsmlSettingsPanel();
   if (had && (state.segments.length || state.audioMeta)) {
-    const saved = state.ui.screen;
-    const target = saved && saved !== "upload" ? saved : state.segments.length ? "editor" : "stages";
+    const saved = state.ui.screen === "stages" ? "setup" : state.ui.screen; // old name, pre-rename saves
+    const target = saved && saved !== "upload" ? saved : state.segments.length ? "editor" : "setup";
     await showScreen(target);
     toast("Restored your previous session.", "info");
   } else {

@@ -1,6 +1,6 @@
 // IndexedDB persistence. One database, two stores:
 //   'state' - a single record under key 'project' (the whole project JSON)
-//   'audio' - Blobs keyed 'original' / 'processed'
+//   'audio' - the working audio Blob, keyed 'audio'
 //
 // Everything the app needs to survive a reload lives here. A tiny promise
 // wrapper, no external dependency.

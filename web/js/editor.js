@@ -15,11 +15,9 @@ import {
   segId,
   showScreen,
   scheduleSave,
-  saveNow,
   toast,
   escapeHtml,
 } from "./main.js";
-import * as api from "./api.js";
 import * as wav from "./wav.js";
 import * as wf from "./waveform.js";
 import { buildSRT, downloadSRT } from "./srt.js";
@@ -28,7 +26,7 @@ const ACTIVATE_MARGIN = "600px"; // IntersectionObserver rootMargin
 const ACTIVATE_DIST = 500; // px from the scroll viewport within which the sweep also activates
 const KEEP_DIST = 1500; // px from the scroll viewport before a row is torn down
 const MAX_ACTIVE = 24; // hard cap on live RSML preview bindings
-const PLACEHOLDER = "(no transcript yet - click to edit, or use Transcribe)";
+const PLACEHOLDER = "(no transcript yet - click to edit)";
 
 let mounted = false;
 let rows = new Map(); // segId -> Row
@@ -268,9 +266,7 @@ function buildRow(seg) {
       <div class="time-group" data-edge="end">${timeInputs(seg.end)}</div>
       <span class="seg-dur"></span>
       <span class="flex-spacer"></span>
-      <select class="seg-lang" title="Language for this segment">${langOptions(seg.language || "")}</select>
       <button class="btn btn-sm btn-outline-primary seg-play" title="Play this segment"><i class="bi bi-play-fill"></i></button>
-      <button class="btn btn-sm btn-primary seg-transcribe">Transcribe</button>
       <span class="seg-status" data-status="${seg.status || "empty"}"></span>
       <button class="btn btn-sm btn-link seg-add" title="Add segment after this one"><i class="bi bi-plus-lg"></i></button>
       <button class="btn btn-sm btn-link text-danger seg-del" title="Delete segment"><i class="bi bi-trash"></i></button>
@@ -292,9 +288,7 @@ function buildRow(seg) {
     idx: row.querySelector(".seg-idx"),
     dur: row.querySelector(".seg-dur"),
     status: row.querySelector(".seg-status"),
-    transcribe: row.querySelector(".seg-transcribe"),
     play: row.querySelector(".seg-play"),
-    lang: row.querySelector(".seg-lang"),
     starts: row.querySelectorAll('.time-group[data-edge="start"] input'),
     ends: row.querySelectorAll('.time-group[data-edge="end"] input'),
   };
@@ -351,10 +345,6 @@ function buildRow(seg) {
     if (e.target.closest("button, input, select, .time-group")) return;
     selectRow(seg.id, true);
   });
-  els.lang.onchange = () => {
-    seg.language = els.lang.value;
-    scheduleSave();
-  };
   els.play.onclick = () => {
     if (!wf.isReady()) return;
     wf.toggleSegment(seg.id, (playing) => setPlayButton(seg.id, playing));
@@ -364,7 +354,6 @@ function buildRow(seg) {
     const span = Math.max(1, seg.end - seg.start);
     addSegment(seg.end, wav.getDuration() ? Math.min(seg.end + span, wav.getDuration()) : seg.end + span);
   };
-  els.transcribe.onclick = () => transcribeOne(seg.id);
 
   const onTimeInput = (edge) => {
     const inputs = edge === "start" ? els.starts : els.ends;
@@ -508,18 +497,6 @@ function timeInputs(sec) {
   );
 }
 
-function langOptions(selectedCode) {
-  const langs = runtime.languages && runtime.languages.length ? runtime.languages : [{ code: "", label: "Auto" }];
-  return langs
-    .map(
-      (l) =>
-        `<option value="${escapeHtml(l.code)}"${l.code === (selectedCode || "") ? " selected" : ""}>${escapeHtml(
-          l.code === "" ? "Auto" : l.label
-        )}</option>`
-    )
-    .join("");
-}
-
 function readTimeInputs(inputs) {
   const [h, m, s, ms] = [...inputs].map((i) => parseInt(i.value || "0", 10) || 0);
   return h * 3600 + m * 60 + s + ms / 1000;
@@ -548,10 +525,9 @@ function updateDur(seg) {
 function updateStatus(seg) {
   const r = rows.get(seg.id);
   if (!r) return;
-  const map = { empty: "", transcribing: "...", done: "✓", error: "!" };
+  const map = { empty: "", done: "✓" };
   r.els.status.dataset.status = seg.status || "empty";
   r.els.status.textContent = map[seg.status || "empty"] || "";
-  r.els.transcribe.disabled = seg.status === "transcribing" || !wav.hasAudio();
 }
 
 function setPlayButton(id, playing) {
@@ -732,7 +708,6 @@ function addSegment(start, end) {
     speaker: null,
     status: "empty",
     verified: false,
-    language: document.getElementById("lang-bulk")?.value || "",
   };
   s.segments.push(seg);
   s.segments.sort((a, b) => a.start - b.start);
@@ -776,66 +751,6 @@ function removeSegment(id) {
   scheduleSave();
 }
 
-// -------------------------------------------------------- transcribe ----
-
-async function transcribeOne(id) {
-  const s = getState();
-  const seg = s.segments.find((x) => x.id === id);
-  if (!seg) return;
-  if (!wav.hasAudio()) {
-    toast("No audio loaded, so this segment cannot be transcribed.", "error");
-    return;
-  }
-  seg.status = "transcribing";
-  updateStatus(seg);
-  try {
-    const clip = wav.sliceToWav(seg.start, seg.end);
-    const res = await api.transcribe(clip, {
-      language: seg.language || "",
-      model: s.transcription.model,
-      apiKey: s.transcription.apiKey,
-    });
-    const text = (res.text || "").trim();
-    const r = rows.get(id);
-    if (r && r.active && r.annotator && r.annotator.setValue) r.annotator.setValue(text);
-    else if (r && r.active && r.textarea) r.textarea.value = text;
-    else if (r && r.plainEl) {
-      r.plainEl.textContent = text || PLACEHOLDER;
-      r.plainEl.classList.toggle("is-empty", !text);
-      r.output.textContent = text;
-    }
-    seg.rsml = text;
-    seg.status = text ? "done" : "empty";
-    scheduleSave();
-  } catch (err) {
-    seg.status = "error";
-    const warn = err && err.code === "not_configured";
-    toast(warn ? err.message : `Transcription failed: ${err.message || err}`, warn ? "warn" : "error");
-  } finally {
-    updateStatus(seg);
-  }
-}
-
-async function transcribeAll() {
-  const targets = getState().segments.filter((seg) => seg.status !== "done" && seg.status !== "transcribing");
-  if (!targets.length) {
-    toast("Every segment already has a transcript.", "info");
-    return;
-  }
-  const bar = document.getElementById("transcribe-all-progress");
-  bar.hidden = false;
-  let done = 0;
-  for (const seg of targets) {
-    if (!mounted) break;
-    await transcribeOne(seg.id);
-    done++;
-    bar.querySelector(".bar-fill").style.width = `${Math.round((done / targets.length) * 100)}%`;
-    bar.querySelector(".bar-text").textContent = `${done}/${targets.length}`;
-  }
-  await saveNow();
-  setTimeout(() => (bar.hidden = true), 1500);
-}
-
 // ------------------------------------------------------------- verified ----
 
 function updateVerifyCount() {
@@ -864,18 +779,11 @@ function setAllVerified(v) {
   scheduleSave();
 }
 
-function setAllLanguages(code) {
-  for (const seg of getState().segments) seg.language = code;
-  for (const r of rows.values()) if (r.els.lang) r.els.lang.value = code;
-  scheduleSave();
-}
-
 // ------------------------------------------------------------- chrome ----
 
 function wireChrome() {
-  bind("editor-back-btn", () => showScreen("stages"));
+  bind("editor-back-btn", () => showScreen("setup"));
   bind("add-seg-btn", addSegmentAtPlayhead);
-  bind("transcribe-all-btn", transcribeAll);
   bind("shortcuts-btn", () => toggleShortcutsModal());
   bind("close-shortcuts", () => toggleShortcutsModal(false));
   const shortcutsBackdrop = document.getElementById("shortcuts-backdrop");
@@ -883,14 +791,6 @@ function wireChrome() {
 
   const all = document.getElementById("verify-all");
   if (all) all.onchange = () => setAllVerified(all.checked);
-
-  const lb = document.getElementById("lang-bulk");
-  if (lb) lb.innerHTML = langOptions(lb.value || "");
-  bind("lang-apply", () => {
-    const lb2 = document.getElementById("lang-bulk");
-    if (lb2 && confirm(`Set the language of all ${getState().segments.length} segments to "${lb2.options[lb2.selectedIndex]?.text || "Auto"}"?`))
-      setAllLanguages(lb2.value);
-  });
 
   bind("export-srt-btn", () => {
     const s = getState();

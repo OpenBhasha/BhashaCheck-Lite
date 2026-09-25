@@ -1,89 +1,53 @@
 # BhashaCheck Lite - single-page RSML transcription workbench
 
-A local, no-login, no-database tool: one HTML page + a thin stateless FastAPI
-ML service. It walks you through
+A static, no-login, no-database, no-backend tool: one HTML page. It walks you
+through
 
-**upload -> music removal -> segmentation -> (optional) diarization -> per-segment
-RSML transcription -> SRT export**
+**upload audio -> import an SRT or run in-browser VAD to seed segments ->
+per-segment RSML annotation -> SRT export**
 
 Every transcript field is bound to the [`rsml`](https://www.npmjs.com/package/rsml)
 library (`RSMLAnnotator`), with a live preview beside it. All progress is saved
 in the browser's IndexedDB, so a reload never loses work.
 
 ```
-server/   FastAPI ML service (stateless endpoints; also serves the page)
-web/      the single-page app (index.html + ES modules, Bootstrap 5)
+web/   the whole app - index.html + ES modules, Bootstrap 5
 ```
 
-## Prerequisites
+There is no server. Everything - waveform, RSML editing, "continue manually"
+segmentation, SRT import/export - runs client-side. That last one uses
+[`@ricky0123/vad-web`](https://www.npmjs.com/package/@ricky0123/vad-web) (a
+Silero VAD model running in-browser via ONNX Runtime Web/WASM), loaded from a
+CDN on demand only when you click "Continue manually" - a plain SRT-import
+project never downloads it.
 
-- **Python 3.11** (heavy first-run model downloads; CPU is fine, Demucs is slow on long files)
-- **FFmpeg** + **ffprobe** on `PATH` - macOS `brew install ffmpeg`, Debian/Ubuntu `apt install ffmpeg`
-- Internet on first page load (Bootstrap, `rsml`, CodeMirror, WaveSurfer load from jsDelivr; cached afterwards)
+## Run locally
 
-## Run
+Any static file server works - it just needs to serve `web/` at its root, e.g.:
 
 ```bash
-cd server
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env          # optional: set HUGGINGFACE_TOKEN for diarization
-uvicorn main:app --reload --port 8000
+npx serve web
 ```
 
-Open **http://localhost:8000/**. The FastAPI app serves the frontend at `/`
-(same origin, no CORS setup needed). First run downloads the Whisper `small`
-model and the Silero VAD model.
+Then open the URL it prints. (Opening `web/index.html` directly via `file://`
+also mostly works, except IndexedDB persistence is unreliable under `file://`
+in some browsers - a real local server is the reliable option.)
 
-To host the page yourself instead, set `SERVE_WEB=false` and open
-`web/index.html` - it falls back to calling the API at `http://localhost:8000`.
+## Deploy to Netlify
 
-## What works out of the box
-
-| Stage | Engine | Notes |
-|---|---|---|
-| Music Removal | Demucs (`htdemucs`) | `--two-stems vocals` |
-| Segmentation | Silero VAD | creates empty segments from speech spans |
-| Diarization | pyannote community-1 | **needs** `HUGGINGFACE_TOKEN` + accepted model terms, else reported as "not configured" |
-| Transcription | **Whisper (local)** | the one fully-working ASR provider |
-
-Transcription **language is set per segment** in the editor (each row has its
-own selector, plus a "Set all languages" bulk control). The Stages screen's
-Transcription card only carries the model + API key.
-
-## Extra ASR providers (wired but inert until configured)
-
-They appear in the model dropdown and return a friendly *"not configured"*
-banner until set up in `server/.env`:
-
-| Model | Enable with |
-|---|---|
-| Indic-Transcribe (Bodhan AI) | `pip install -r requirements-indic.txt`, accept the license at [hf.co/bodhan-ai/indic-transcribe-flex](https://huggingface.co/bodhan-ai/indic-transcribe-flex), set `HUGGINGFACE_TOKEN`. ~1B params, 27 Indian languages, NeMo-trained. `INDIC_TRANSCRIBE_MODEL` picks the `-flex` / `-core` variant. ~5 GB download on first use. |
-| Wav2Vec2 | `WAV2VEC2_MODEL=<hf-id-or-path>` + `pip install transformers` |
-| Conformer | `CONFORMER_MODEL_PATH=<.nemo-or-name>` + `pip install -r requirements-nemo.txt` |
-| IndicConformer | `INDIC_CONFORMER_MODEL_PATH=<.nemo>` + `pip install -r requirements-nemo.txt` |
-| Sarvam AI | `SARVAM_API_KEY=<key>` (or paste a key into the Transcription card) |
-| Gnani.ai | `GNANI_API_KEY=<key>` + `GNANI_API_URL=<your contract endpoint>` |
-
-## API (all stateless, multipart in -> JSON/WAV out)
-
-| Method | Path | Body -> Response |
-|---|---|---|
-| GET | `/api/health` | device, ffmpeg + diarization availability |
-| GET | `/api/models` | ASR dropdown metadata + language list |
-| POST | `/api/music-removal` | `file` -> `audio/wav` (vocals) |
-| POST | `/api/vad` | `file` -> `{segments:[{start,end}], duration}` |
-| POST | `/api/diarize` | `file` -> `{turns:[{start,end,speaker}]}` |
-| POST | `/api/transcribe` | `file`,`language`,`model`,`api_key` -> `{text,confidence,language}` |
-
-Handled failures and "not configured" cases return **HTTP 200** with
-`{code, message}` so the UI shows a banner instead of a network error.
+Point Netlify at this repo with **publish directory `web`** and no build
+command (a `netlify.toml` at the repo root already sets this, so "New site
+from Git" picks it up automatically). That's it - static hosting, nothing to
+configure server-side.
 
 ## Notes
 
-- Per-segment transcription audio is sliced **in the browser** (decode once,
-  encode a WAV per segment) so the source file is never re-uploaded per segment.
-- The provider wrappers (Demucs, Silero VAD, pyannote, Whisper) are ports of the
-  ML pipeline in the full BhashaCheck project, exposed here behind simple
-  stateless endpoints.
+- Internet is needed on first load for Bootstrap, `rsml`, CodeMirror, and
+  WaveSurfer (all from jsDelivr, cached by the browser afterward), and again
+  the first time you click "Continue manually" (the VAD model + ONNX runtime
+  WASM, also cached afterward).
+- No accounts, no server-side storage: a project lives entirely in the
+  browser's IndexedDB for that origin. Clearing site data removes it.
+- Looking for the version with a Python ML backend (Demucs music removal,
+  server-side Whisper transcription, pyannote diarization)? See the
+  `full-stack` branch of this repo.

@@ -20,7 +20,7 @@
         <i class="bi bi-soundwave"></i>
         <div>
           <strong>BhashaCheck</strong>
-          <div class="tagline">Upload, clean, segment, RSML transcribe, SRT</div>
+          <div class="tagline">Upload, segment, RSML annotate, SRT export</div>
         </div>
       </div>
       <div class="header-right">
@@ -30,8 +30,6 @@
         </button>
       </div>
     </header>
-
-    <div id="service-banner" class="service-banner" hidden></div>
 
     <main>
       <!-- ============================ UPLOAD ============================ -->
@@ -53,41 +51,37 @@
         </div>
       </section>
 
-      <!-- ============================ STAGES ============================ -->
-      <section id="screen-stages" hidden>
+      <!-- ============================ SETUP ============================ -->
+      <section id="screen-setup" hidden>
         <div class="screen-inner">
           <div class="screen-head">
-            <button id="stages-back-btn" class="btn btn-sm btn-link"><i class="bi bi-arrow-left"></i> Upload</button>
-            <h2>Processing stages</h2>
-            <p class="muted">Run or skip each stage, then open the editor to transcribe segment by segment.</p>
+            <button id="setup-back-btn" class="btn btn-sm btn-link"><i class="bi bi-arrow-left"></i> Upload</button>
+            <h2>Segment this audio</h2>
+            <p class="muted">Bring in an SRT you already have, or let the browser find speech segments for you.</p>
           </div>
 
-          <div id="stages-list" class="stages-list"></div>
-
-          <div class="stages-alt">
-            <button id="stages-upload-srt" class="btn btn-outline-primary btn-sm">
-              <i class="bi bi-filetype-txt"></i> Upload an SRT instead
-            </button>
-            <button id="stages-skip-all" class="btn btn-outline-secondary btn-sm">
-              Skip all stages
-            </button>
-            <span class="muted small">SRT import fills the segments and jumps straight to the editor.</span>
-          </div>
-
-          <div class="card config-card">
-            <div class="card-body">
-              <h3><i class="bi bi-sliders"></i> Transcription</h3>
-              <p class="muted small">
-                Configured here, run per-segment in the editor. Local models and cloud APIs both supported.
-              </p>
-              <div id="transcription-config"></div>
+          <div class="setup-options">
+            <div class="card setup-card">
+              <div class="card-body">
+                <i class="bi bi-filetype-txt"></i>
+                <h3>Upload an SRT</h3>
+                <p class="muted small">
+                  Already have a transcript? Import its cues as segments and open the editor.
+                </p>
+                <button id="setup-srt-btn" class="btn btn-outline-primary">Choose .srt file</button>
+              </div>
             </div>
-          </div>
-
-          <div class="screen-foot">
-            <button id="open-editor-btn" class="btn btn-primary btn-lg">
-              Open editor <i class="bi bi-arrow-right"></i>
-            </button>
+            <div class="card setup-card">
+              <div class="card-body">
+                <i class="bi bi-soundwave"></i>
+                <h3>Continue manually</h3>
+                <p class="muted small">
+                  Runs voice-activity detection right in your browser to seed segments, then opens the
+                  editor where you can add, remove, or adjust them.
+                </p>
+                <button id="setup-manual-btn" class="btn btn-primary">Continue manually</button>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -95,31 +89,23 @@
       <!-- ============================ EDITOR ============================ -->
       <section id="screen-editor" hidden>
         <div class="editor-toolbar">
-          <button id="editor-back-btn" class="btn btn-sm btn-link"><i class="bi bi-arrow-left"></i> Stages</button>
+          <button id="editor-back-btn" class="btn btn-sm btn-link"><i class="bi bi-arrow-left"></i> Segment</button>
           <span class="seg-count"><span id="seg-count-n">0</span> segments</span>
           <label class="verify-toggle">
             <input type="checkbox" id="verify-all" />
             <span><span id="verify-count">0 / 0</span> verified</span>
           </label>
           <span class="flex-spacer"></span>
-          <span class="lang-bulk-wrap">
-            <select id="lang-bulk" class="form-select form-select-sm" title="Language to apply to every segment"></select>
-            <button id="lang-apply" class="btn btn-sm btn-outline-secondary">Set all languages</button>
-          </span>
           <button id="add-seg-btn" class="btn btn-sm btn-outline-secondary">
             <i class="bi bi-plus-lg"></i> Add segment at playhead
           </button>
         </div>
 
         <p id="editor-empty" class="editor-empty" hidden>
-          No segments yet. Move the playhead and use "Add segment", or go back and run Segmentation.
+          No segments yet. Move the playhead and use "Add segment".
         </p>
 
         <div id="seg-list" class="seg-list"></div>
-
-        <div id="transcribe-all-progress" class="bar" hidden>
-          <div class="bar-fill"></div><span class="bar-text"></span>
-        </div>
 
         <div class="editor-bottom">
           <div id="waveform-note" class="waveform-note" hidden>
@@ -149,9 +135,6 @@
           </div>
 
           <div class="editor-foot">
-            <button id="transcribe-all-btn" class="btn btn-sm btn-outline-primary">
-              <i class="bi bi-lightning-charge"></i> Transcribe all
-            </button>
             <button id="shortcuts-btn" class="btn btn-sm btn-outline-secondary" title="Keyboard shortcuts (Ctrl+/)">
               <i class="bi bi-keyboard"></i> Shortcuts
             </button>
