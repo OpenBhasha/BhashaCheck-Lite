@@ -263,6 +263,10 @@ main > section { flex: 1; min-height: 0; }
 .seg-pane { display: flex; flex-direction: column; min-width: 0; }
 .seg-pane + .seg-pane { border-left: 1px solid var(--line); }
 .pane-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -272,6 +276,23 @@ main > section { flex: 1; min-height: 0; }
   background: #fcfbff;
   border-bottom: 1px solid var(--line);
 }
+.codemix-insert-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--accent-ink);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: normal;
+  text-transform: none;
+  padding: 1px 8px 1px 6px;
+  cursor: pointer;
+}
+.codemix-insert-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
+.codemix-insert-btn .bi { font-size: 11px; }
 /* By default each pane hugs its own content (min-height only) - the grid's
    default stretch then pulls the shorter pane up to match the taller one, so
    their bottom edges line up for the shared puller below. Dragging
@@ -596,7 +617,8 @@ main > section { flex: 1; min-height: 0; }
 }
 .spk-row:last-child { border-bottom: none; }
 .spk-row-label { color: var(--ink); }
-.spk-move,
+.spk-default-btn,
+.spk-edit,
 .spk-remove {
   border: none;
   background: none;
@@ -606,8 +628,10 @@ main > section { flex: 1; min-height: 0; }
   padding: 2px 5px;
   cursor: pointer;
 }
-.spk-move:disabled { opacity: 0.3; cursor: default; }
-.spk-move:not(:disabled):hover { color: var(--accent-ink); }
+.spk-edit { font-size: 12px; }
+.spk-default-btn:hover { color: var(--warn); }
+.spk-default-btn.is-default { color: var(--warn); }
+.spk-edit:hover { color: var(--accent-ink); }
 .spk-remove:hover { color: var(--err); }
 
 /* Add-speaker modal (reuses .shortcuts-modal chrome) */

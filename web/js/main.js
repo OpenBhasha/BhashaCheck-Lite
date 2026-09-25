@@ -7,7 +7,7 @@ import * as wav from "./wav.js";
 import { parseSRT } from "./srt.js";
 import { mountEditor, unmountEditor } from "./editor.js";
 import { renderRsmlSettings } from "./rsmlSettings.js";
-import { renderLanguageDefaults, renderSpeakerSettings } from "./speakers.js";
+import { renderCodeMixDefault, renderSpeakerSettings } from "./speakers.js";
 
 // ---------------------------------------------------------------- state ----
 
@@ -17,8 +17,9 @@ const newState = () => ({
   updatedAt: Date.now(),
   audioMeta: null, // { name, type, size, duration }
   segments: [], // { id, start, end, rsml, speaker, verified } - speaker is a speakers[].id or null
-  speakers: [], // { id, gender, nativeLanguage } - id is stable: monotonic, never reused or reindexed
-  defaultNativeLanguage: null, // language code; pre-fills a new speaker's native-language field
+  speakers: [], // { id, gender, nativeLanguage } - id is stable: monotonic, never reused
+  defaultSpeaker: null, // a speakers[].id; used for every new segment, and bulk-appliable to all
+  defaultCodeMixLanguage: null, // language code; drives the quick-insert "!code" button per segment
   ui: { screen: "upload", zoom: 40, speed: 1 },
   // null until the user customizes something in Settings -> RSML tags; a
   // straight snapshot of an RSMLAnnotator's own .opts otherwise (see
@@ -178,7 +179,7 @@ export async function importSrt(srtFile) {
     toast("No cues found in that .srt file.", "error");
     return;
   }
-  const defaultSpeaker = state.speakers[0]?.id ?? null;
+  const defaultSpeaker = state.defaultSpeaker;
   state.segments = cues.map((c) => ({
     id: segId(),
     start: c.start,
@@ -259,7 +260,7 @@ export async function runManualVad() {
       spans.push({ start: start / 1000, end: end / 1000 });
     }
     spans.sort((a, b) => a.start - b.start);
-    const defaultSpeaker = state.speakers[0]?.id ?? null;
+    const defaultSpeaker = state.defaultSpeaker;
     state.segments = spans.map((sp) => ({
       id: segId(),
       start: sp.start,
@@ -405,11 +406,12 @@ function syncSettingsPanels() {
     escapeHtml,
     applyToOpenRows: (...args) => import("./editor.js").then((m) => m.applyRsmlChange(...args)),
   });
-  renderLanguageDefaults(document.getElementById("language-defaults-panel"), {
+  renderCodeMixDefault(document.getElementById("language-defaults-panel"), {
     getState,
     scheduleSave,
     toast,
     escapeHtml,
+    onDefaultCodeMixChange: () => import("./editor.js").then((m) => m.refreshCodeMixButtons()),
   });
   renderSpeakerSettings(document.getElementById("speaker-roster-panel"), {
     getState,
