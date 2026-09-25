@@ -328,7 +328,7 @@ main > section { flex: 1; min-height: 0; }
 .seg-status[data-status="error"] { color: var(--err); }
 .seg-status[data-status="transcribing"] { color: var(--accent); }
 
-.seg-panes { display: grid; grid-template-columns: 1fr 1fr; position: relative; }
+.seg-panes { display: grid; grid-template-columns: 1fr 1fr; align-items: stretch; position: relative; }
 .seg-pane { display: flex; flex-direction: column; min-width: 0; }
 .seg-pane + .seg-pane { border-left: 1px solid var(--line); }
 .pane-label {
@@ -341,11 +341,20 @@ main > section { flex: 1; min-height: 0; }
   background: #fcfbff;
   border-bottom: 1px solid var(--line);
 }
-/* Both panes read their height from one shared variable, set by dragging
-   .panes-resize below, so the editor and preview always resize together. */
+/* By default each pane hugs its own content (min-height only) - the grid's
+   default stretch then pulls the shorter pane up to match the taller one, so
+   their bottom edges line up for the shared puller below. Dragging
+   .panes-resize sets --panes-h, which pins both to one explicit height
+   instead (flex-basis: the height property, so this slots into the same
+   flex-grow-to-fill mechanism the default case already uses). */
+.rsml-host {
+  flex: 1 1 auto;
+  height: var(--panes-h, auto);
+  min-height: 96px;
+}
 .rsml-textarea {
   width: 100%;
-  height: var(--panes-h, 320px);
+  height: 100%;
   border: none;
   resize: none;
   padding: 12px;
@@ -355,10 +364,19 @@ main > section { flex: 1; min-height: 0; }
   outline: none;
   color: var(--ink);
 }
-.rsml-output { padding: 12px; font-size: 13.5px; line-height: 1.8; overflow-y: auto; height: var(--panes-h, 320px); }
-.rsml-plain {
+.cm-editor { height: 100%; }
+.rsml-output {
+  flex: 1 1 auto;
+  height: var(--panes-h, auto);
+  min-height: 96px;
   padding: 12px;
-  height: var(--panes-h, 320px);
+  font-size: 13.5px;
+  line-height: 1.8;
+  overflow-y: auto;
+}
+.rsml-plain {
+  height: 100%;
+  padding: 12px;
   overflow-y: auto;
   font-family: var(--mono);
   font-size: 13px;
@@ -368,7 +386,6 @@ main > section { flex: 1; min-height: 0; }
   color: var(--ink);
 }
 .rsml-plain.is-empty { color: var(--muted); font-style: italic; font-family: inherit; }
-.cm-editor { height: var(--panes-h, 320px); }
 
 /* One puller, centered on the shared border at the bottom of the pane pair,
    drags --panes-h to resize the editor and preview together. */
