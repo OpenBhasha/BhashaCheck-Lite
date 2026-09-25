@@ -1,108 +1,251 @@
-// Renders the "RSML tags" section of the settings drawer: per-category
-// editors for every tag vocabulary the `rsml` library accepts as config
-// (hesitations, paralinguistics, disfluency/prosody spans, entity types,
-// languages). Edits write straight into state.rsmlConfig, save, and push
-// live to any already-open segment editors.
+// Renders the "RSML tags" section of the settings drawer. All vocabulary
+// editing goes through the `rsml` library's own RSMLAnnotator.add()/
+// .remove() (rsml@3.2.0+) — no hand-rolled tag lists, defaults, or
+// validation here. The category set itself (currently: hesitations,
+// isolatedParalinguistics, isolatedOther, disfluencySpans,
+// paralinguisticSpans, prosodySpans, entities, languages, dialects,
+// domains) is discovered from a live annotator's own `.opts`, so a future
+// library version adding another category shows up automatically.
 //
-// Deliberately takes its app-shell hooks (getState/scheduleSave/toast/
-// escapeHtml/refreshRsmlAnnotators) as a `deps` parameter rather than
-// importing them from main.js/editor.js. Not required for correctness (a
-// module-linking failure chased down during development turned out to be
-// the dev server serving a stale cached main.js, not an actual import
-// cycle problem — see main.py's Cache-Control fix) but keeping this module
-// a plain leaf with no imports of its own besides rsmlDefaults.js is good
-// practice regardless: it stays trivially testable/reusable without caring
-// what main.js or editor.js are.
-import { RSML_DEFAULTS, RSML_TAG_CATEGORIES, freshRsmlConfig } from "./rsmlDefaults.js";
+// Takes its app-shell hooks (getState/scheduleSave/toast/escapeHtml/
+// applyToOpenRows) as a `deps` parameter rather than importing them from
+// main.js/editor.js, keeping this a plain leaf module — see main.js's
+// boot() for why that matters here.
+import RSMLAnnotator from "https://cdn.jsdelivr.net/npm/rsml@3.2.0/rsml.esm.js";
 
-// Matches the library's own tokenizer: @-tag / span-base names are
-// `[\w-]+`; entity/language codes must additionally start with a letter
-// (`[A-Za-z][\w-]*`) since they sit in the `!code[` / `#TYPE[` prefix slot.
-function sanitizeTagName(raw) {
-  return String(raw || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/-{2,}/g, "-")
-    .replace(/^-+|-+$/g, "");
+// Presentational only — a category missing from this map still renders
+// fine, just with its raw key title-cased as the label and no hint line.
+const CATEGORY_META = {
+  hesitations: { label: "Hesitations", hint: "Isolated fillers — type @name while annotating." },
+  isolatedParalinguistics: { label: "Paralinguistics (isolated)", hint: "Isolated sounds, e.g. laughter, cough — type @name." },
+  isolatedOther: { label: "Other isolated tags", hint: "e.g. silence, unintelligible — type @name." },
+  disfluencySpans: { label: "Disfluency spans", hint: "Wrapped around speech as @name-start ... @name-end." },
+  paralinguisticSpans: { label: "Paralinguistic spans", hint: "Wrapped around speech as @name-start ... @name-end." },
+  prosodySpans: { label: "Prosody spans", hint: "Wrapped around speech as @name-start ... @name-end." },
+  entities: { label: "Entity types", hint: "Tagged as #CODE[text](normalized)." },
+  languages: { label: "Languages", hint: "Tagged as !code[text](gloss) for code-mixed spans." },
+  dialects: { label: "Dialects", hint: "Tagged as $$CODE[text](normalized) for dialect-specific phrasing." },
+  domains: { label: "Domains", hint: "Tagged as !!CODE[text](normalized) for domain/register-specific terms." },
+};
+
+const NON_VOCAB_KEYS = new Set(["textarea", "output", "tags", "demoText", "disableCodeMirror"]);
+
+function prettify(key) {
+  return key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
 }
 
-function sanitizeCode(raw, keyCase) {
-  let s = String(raw || "")
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/[^A-Za-z0-9_-]/g, "");
-  while (s && !/[A-Za-z]/.test(s[0])) s = s.slice(1); // must start with a letter
-  return keyCase === "lower" ? s.toLowerCase() : s.toUpperCase();
+function vocabCategories(annotator) {
+  return Object.keys(annotator.opts).filter((k) => !NON_VOCAB_KEYS.has(k));
+}
+
+function makeHiddenAnnotator(opts) {
+  const ta = document.createElement("textarea");
+  const out = document.createElement("div");
+  ta.hidden = true;
+  out.hidden = true;
+  document.body.append(ta, out);
+  return new RSMLAnnotator({ textarea: ta, output: out, disableCodeMirror: true, ...(opts || {}) });
+}
+
+// A hidden, never-shown RSMLAnnotator instance that exists purely to hold
+// and mutate the *current* project's tag vocabulary via the library's own
+// add()/remove(). Rebuilt fresh (old textarea/output discarded) on every
+// renderRsmlSettings() call rather than cached across the page's lifetime
+// — main.js calls renderRsmlSettings again whenever `state` is replaced by
+// a new project, and reusing a stale instance here would keep editing the
+// *previous* project's vocabulary instead of picking up the new one.
+let configAnnotator = null;
+function getConfigAnnotator(initialConfig) {
+  if (configAnnotator) {
+    configAnnotator.destroy();
+    configAnnotator.textarea.remove();
+    configAnnotator.output.remove();
+  }
+  // Built with no overrides (pure library defaults), then each saved
+  // category is layered on via syncCategoryTo() rather than passed straight
+  // into the constructor — see the "healing" comment in renderRsmlSettings
+  // for why a raw spread here isn't safe against older/malformed saved data.
+  configAnnotator = makeHiddenAnnotator();
+  if (initialConfig) {
+    for (const key of Object.keys(initialConfig)) {
+      if (!NON_VOCAB_KEYS.has(key) && key in configAnnotator.opts) {
+        syncCategoryTo(configAnnotator, key, initialConfig[key]);
+      }
+    }
+  }
+  return configAnnotator;
+}
+
+// A second hidden instance, constructed with no overrides, purely as a
+// live reference for the library's own built-in defaults (used by "Reset
+// to defaults" below). These never change project-to-project, so this one
+// *is* a true page-lifetime singleton, lazily built at most once.
+let defaultsAnnotator = null;
+function getDefaultsAnnotator() {
+  if (defaultsAnnotator) return defaultsAnnotator;
+  defaultsAnnotator = makeHiddenAnnotator();
+  return defaultsAnnotator;
+}
+
+function cloneValue(v) {
+  return Array.isArray(v) ? v.slice() : Object.assign({}, v);
+}
+
+// Reconciles one category to exactly `desired` using only the library's own
+// add()/remove() — clears whatever's there, then re-adds `desired` — rather
+// than a raw Object.assign of the array/object. That matters because a
+// straight assignment bypasses the library's own normalization (e.g. the
+// isolated-tag families are always stored "@"-prefixed internally; a saved
+// value that's missing the "@" — such as state.rsmlConfig written by an
+// older version of this feature, before it used the library's native API —
+// would sit there unnormalized and silently fail to compare equal to
+// anything the library itself produces). Routing every value through
+// add()/remove() means whatever shape `desired` is in, the result always
+// matches what a real edit would have produced.
+function syncCategoryTo(annotator, category, desired) {
+  const current = annotator.opts[category];
+  if (Array.isArray(desired)) {
+    for (const name of current.slice()) annotator.remove(category, name);
+    for (const name of desired) annotator.add(category, name);
+  } else {
+    for (const code of Object.keys(current)) annotator.remove(category, code);
+    for (const [code, label] of Object.entries(desired)) annotator.add(category, code, label);
+  }
 }
 
 export function renderRsmlSettings(root, deps) {
   if (!root) return;
-  const { getState } = deps;
+  const state = deps.getState();
+  const annotator = getConfigAnnotator(state.rsmlConfig);
+  // state.rsmlConfig may have been written by an older version of this
+  // feature (before rsml@3.2.0's native add/remove) in a shape the current
+  // library doesn't produce on its own — getConfigAnnotator() above already
+  // normalized it into the annotator via syncCategoryTo(); write that
+  // normalized shape straight back so it doesn't keep re-triggering this
+  // healing path (and so editor.js's plain `...state.rsmlConfig` spread for
+  // new segments gets already-normalized data too). Only when there was
+  // something to normalize in the first place — an untouched (null) project
+  // stays null rather than eagerly materializing every default.
+  if (state.rsmlConfig) {
+    const healed = {};
+    for (const key of vocabCategories(annotator)) healed[key] = cloneValue(annotator.opts[key]);
+    state.rsmlConfig = healed;
+    deps.scheduleSave();
+  }
   root.innerHTML = "";
-  const state = getState();
-  if (!state.rsmlConfig) state.rsmlConfig = freshRsmlConfig();
-  const cfg = state.rsmlConfig;
-  for (const cat of RSML_TAG_CATEGORIES) {
-    root.appendChild(cat.kind === "map" ? buildMapCategory(cat, cfg, deps) : buildListCategory(cat, cfg, deps));
+  for (const key of vocabCategories(annotator)) {
+    root.appendChild(buildCategory(key, annotator, deps));
   }
 }
 
-function commit(deps) {
-  deps.scheduleSave();
-  deps.refreshRsmlAnnotators();
+// Runs one add()/remove() on the shared config annotator, and — only if it
+// actually changed something — persists the resulting category value and
+// replays the same call on every already-open segment editor so they
+// reflect it immediately (the library supports this live, even mid-edit;
+// no rebuild needed).
+function mutate(annotator, deps, category, action, value, label) {
+  let changed;
+  try {
+    changed = annotator[action](category, value, label);
+  } catch (err) {
+    deps.toast(err.message, "error");
+    return false;
+  }
+  if (changed) {
+    const state = deps.getState();
+    if (!state.rsmlConfig) state.rsmlConfig = {};
+    state.rsmlConfig[category] = cloneValue(annotator.opts[category]);
+    deps.scheduleSave();
+    deps.applyToOpenRows(category, action, value, label);
+  }
+  return changed;
 }
 
-function buildCategoryShell(cat, countFn) {
+// Resets a category to the library's own built-in default: clears whatever
+// is currently registered, then re-adds the default set — same
+// clear-then-repopulate approach as syncCategoryTo(), just routed through
+// mutate() step by step so each change is persisted and replayed onto
+// every open segment editor as it happens.
+function resetCategory(annotator, deps, category) {
+  const def = getDefaultsAnnotator().opts[category];
+  const current = annotator.opts[category];
+  if (Array.isArray(def)) {
+    for (const name of current.slice()) mutate(annotator, deps, category, "remove", name);
+    for (const name of def) mutate(annotator, deps, category, "add", name);
+  } else {
+    for (const code of Object.keys(current)) mutate(annotator, deps, category, "remove", code);
+    for (const [code, label] of Object.entries(def)) mutate(annotator, deps, category, "add", code, label);
+  }
+}
+
+function buildCategory(key, annotator, deps) {
+  const meta = CATEGORY_META[key] || {};
+  const isList = Array.isArray(annotator.opts[key]);
+
   const det = document.createElement("details");
   det.className = "rsml-cat";
+
   const summary = document.createElement("summary");
   const countEl = document.createElement("span");
   countEl.className = "rsml-cat-count";
-  summary.append(cat.label + " ", countEl);
+  summary.append((meta.label || prettify(key)) + " ", countEl);
   det.appendChild(summary);
 
-  const hint = document.createElement("p");
-  hint.className = "rsml-cat-hint muted small";
-  hint.textContent = cat.hint;
-  det.appendChild(hint);
+  if (meta.hint) {
+    const hint = document.createElement("p");
+    hint.className = "rsml-cat-hint muted small";
+    hint.textContent = meta.hint;
+    det.appendChild(hint);
+  }
 
-  const updateCount = () => {
-    countEl.textContent = countFn();
+  const body = document.createElement("div");
+  det.appendChild(body);
+
+  const rerender = () => {
+    const v = annotator.opts[key];
+    countEl.textContent = Array.isArray(v) ? v.length : Object.keys(v).length;
+    body.innerHTML = "";
+    body.appendChild(isList ? buildListBody(key, annotator, deps, rerender) : buildMapBody(key, annotator, deps, rerender));
   };
-  return { det, updateCount };
+  rerender();
+
+  const resetBtn = document.createElement("button");
+  resetBtn.type = "button";
+  resetBtn.className = "btn btn-sm btn-link rsml-reset";
+  resetBtn.textContent = "Reset to defaults";
+  resetBtn.onclick = () => {
+    resetCategory(annotator, deps, key);
+    rerender();
+  };
+  det.appendChild(resetBtn);
+
+  return det;
 }
 
-function buildListCategory(cat, cfg, deps) {
-  const { escapeHtml, toast } = deps;
-  const { det, updateCount } = buildCategoryShell(cat, () => cfg[cat.key].length);
+function buildListBody(key, annotator, deps, rerender) {
+  const { escapeHtml } = deps;
+  const frag = document.createDocumentFragment();
 
   const chipWrap = document.createElement("div");
   chipWrap.className = "rsml-chips";
-  det.appendChild(chipWrap);
-
-  const renderChips = () => {
-    chipWrap.innerHTML = "";
-    for (const word of cfg[cat.key]) {
-      const chip = document.createElement("span");
-      chip.className = "rsml-chip";
-      chip.innerHTML = `${escapeHtml(word)} <button type="button" aria-label="Remove ${escapeHtml(word)}">&times;</button>`;
-      chip.querySelector("button").onclick = () => {
-        cfg[cat.key] = cfg[cat.key].filter((w) => w !== word);
-        renderChips();
-        updateCount();
-        commit(deps);
-      };
-      chipWrap.appendChild(chip);
-    }
-    if (!cfg[cat.key].length) {
-      const empty = document.createElement("span");
-      empty.className = "rsml-cat-empty muted small";
-      empty.textContent = "None — every @tag of this kind will show as unrecognized.";
-      chipWrap.appendChild(empty);
-    }
-  };
+  const values = annotator.opts[key];
+  for (const word of values) {
+    const chip = document.createElement("span");
+    chip.className = "rsml-chip";
+    chip.innerHTML = `${escapeHtml(word)} <button type="button" aria-label="Remove ${escapeHtml(word)}">&times;</button>`;
+    chip.querySelector("button").onclick = () => {
+      mutate(annotator, deps, key, "remove", word);
+      rerender();
+    };
+    chipWrap.appendChild(chip);
+  }
+  if (!values.length) {
+    const empty = document.createElement("span");
+    empty.className = "rsml-cat-empty muted small";
+    empty.textContent = "None — every @tag of this kind will show as unrecognized.";
+    chipWrap.appendChild(empty);
+  }
+  frag.appendChild(chipWrap);
 
   const addRow = document.createElement("div");
   addRow.className = "rsml-add-row";
@@ -111,20 +254,10 @@ function buildListCategory(cat, cfg, deps) {
     `<button type="button" class="btn btn-sm btn-outline-secondary">Add</button>`;
   const input = addRow.querySelector("input");
   const doAdd = () => {
-    const name = sanitizeTagName(input.value);
-    if (!name) {
-      if (input.value.trim()) toast("Tag names can only use letters, numbers and hyphens.", "error");
-      return;
-    }
-    if (cfg[cat.key].includes(name)) {
-      input.value = "";
-      return;
-    }
-    cfg[cat.key] = [...cfg[cat.key], name];
-    input.value = "";
-    renderChips();
-    updateCount();
-    commit(deps);
+    const raw = input.value.trim();
+    if (!raw) return;
+    if (mutate(annotator, deps, key, "add", raw)) input.value = "";
+    rerender();
   };
   addRow.querySelector("button").onclick = doAdd;
   input.addEventListener("keydown", (e) => {
@@ -133,55 +266,39 @@ function buildListCategory(cat, cfg, deps) {
       doAdd();
     }
   });
-  det.appendChild(addRow);
+  frag.appendChild(addRow);
 
-  det.appendChild(
-    resetButton(() => {
-      cfg[cat.key] = RSML_DEFAULTS[cat.key].slice();
-      renderChips();
-      updateCount();
-      commit(deps);
-    })
-  );
-
-  renderChips();
-  updateCount();
-  return det;
+  return frag;
 }
 
-function buildMapCategory(cat, cfg, deps) {
-  const { escapeHtml, toast } = deps;
-  const { det, updateCount } = buildCategoryShell(cat, () => Object.keys(cfg[cat.key]).length);
+function buildMapBody(key, annotator, deps, rerender) {
+  const { escapeHtml } = deps;
+  const frag = document.createDocumentFragment();
 
   const rowsWrap = document.createElement("div");
   rowsWrap.className = "rsml-map-rows";
-  det.appendChild(rowsWrap);
-
-  const renderRows = () => {
-    rowsWrap.innerHTML = "";
-    const codes = Object.keys(cfg[cat.key]).sort();
-    for (const code of codes) {
-      const row = document.createElement("div");
-      row.className = "rsml-map-row";
-      row.innerHTML =
-        `<code class="rsml-map-code">${escapeHtml(code)}</code>` +
-        `<span class="rsml-map-label">${escapeHtml(cfg[cat.key][code])}</span>` +
-        `<button type="button" aria-label="Remove ${escapeHtml(code)}">&times;</button>`;
-      row.querySelector("button").onclick = () => {
-        delete cfg[cat.key][code];
-        renderRows();
-        updateCount();
-        commit(deps);
-      };
-      rowsWrap.appendChild(row);
-    }
-    if (!codes.length) {
-      const empty = document.createElement("p");
-      empty.className = "rsml-cat-empty muted small";
-      empty.textContent = "None configured.";
-      rowsWrap.appendChild(empty);
-    }
-  };
+  const map = annotator.opts[key];
+  const codes = Object.keys(map).sort();
+  for (const code of codes) {
+    const row = document.createElement("div");
+    row.className = "rsml-map-row";
+    row.innerHTML =
+      `<code class="rsml-map-code">${escapeHtml(code)}</code>` +
+      `<span class="rsml-map-label">${escapeHtml(map[code])}</span>` +
+      `<button type="button" aria-label="Remove ${escapeHtml(code)}">&times;</button>`;
+    row.querySelector("button").onclick = () => {
+      mutate(annotator, deps, key, "remove", code);
+      rerender();
+    };
+    rowsWrap.appendChild(row);
+  }
+  if (!codes.length) {
+    const empty = document.createElement("p");
+    empty.className = "rsml-cat-empty muted small";
+    empty.textContent = "None configured.";
+    rowsWrap.appendChild(empty);
+  }
+  frag.appendChild(rowsWrap);
 
   const addRow = document.createElement("div");
   addRow.className = "rsml-add-row rsml-add-row-map";
@@ -192,20 +309,13 @@ function buildMapCategory(cat, cfg, deps) {
   const codeInput = addRow.querySelector(".rsml-add-code");
   const labelInput = addRow.querySelector(".rsml-add-label");
   const doAdd = () => {
-    const code = sanitizeCode(codeInput.value, cat.keyCase);
-    const label = labelInput.value.trim();
-    if (!code || !label) {
-      if (codeInput.value.trim() || labelInput.value.trim()) {
-        toast("Codes must start with a letter; both code and label are required.", "error");
-      }
-      return;
+    const code = codeInput.value.trim();
+    if (!code) return;
+    if (mutate(annotator, deps, key, "add", code, labelInput.value.trim())) {
+      codeInput.value = "";
+      labelInput.value = "";
     }
-    cfg[cat.key][code] = label;
-    codeInput.value = "";
-    labelInput.value = "";
-    renderRows();
-    updateCount();
-    commit(deps);
+    rerender();
   };
   addRow.querySelector("button").onclick = doAdd;
   for (const el of [codeInput, labelInput]) {
@@ -216,27 +326,7 @@ function buildMapCategory(cat, cfg, deps) {
       }
     });
   }
-  det.appendChild(addRow);
+  frag.appendChild(addRow);
 
-  det.appendChild(
-    resetButton(() => {
-      cfg[cat.key] = Object.assign({}, RSML_DEFAULTS[cat.key]);
-      renderRows();
-      updateCount();
-      commit(deps);
-    })
-  );
-
-  renderRows();
-  updateCount();
-  return det;
-}
-
-function resetButton(onReset) {
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "btn btn-sm btn-link rsml-reset";
-  btn.textContent = "Reset to defaults";
-  btn.onclick = onReset;
-  return btn;
+  return frag;
 }
