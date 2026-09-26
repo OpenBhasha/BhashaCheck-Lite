@@ -777,17 +777,32 @@ function inShortcutScope(e) {
   return !!(el.closest && el.closest("#seg-list, #wf-controls, #wf-scrub, #waveform-panel"));
 }
 
-// Focuses a row's actual editing surface. A freshly-activated row's
-// CodeMirror view doesn't exist yet (it boots async) so activate()'s own
-// {focus:true} path focusing the underlying textarea is the best available
-// — CM6 picks up the focus once it mounts. An already-active row's view
-// does exist, and it's the real interactive surface (the textarea sits
-// beneath it, hidden), so focus that directly.
-function focusSegmentEditor(id) {
+// Focuses a row's actual editing surface. An already-active row's CM6
+// view exists and is the real interactive surface (the textarea sits
+// beneath it, hidden) - focus that directly. A freshly-activated row's
+// view doesn't exist yet (it mounts asynchronously), so this retries
+// below rather than assuming CM6 will pick up the focus on its own once
+// it's ready - it doesn't (see the retry comment inside).
+function focusSegmentEditor(id, attempt = 0) {
   const rec = rows.get(id);
   if (!rec) return;
-  if (rec.annotator && rec.annotator.view) rec.annotator.view.focus();
-  else if (rec.textarea) rec.textarea.focus();
+  if (rec.annotator && rec.annotator.view) {
+    rec.annotator.view.focus();
+    return;
+  }
+  if (rec.textarea) rec.textarea.focus();
+  // CM6 mounts asynchronously - rec.annotator.view isn't set yet the first
+  // time this runs right after activate(). Focusing the raw textarea above
+  // only ever "sticks" by luck: once CM6 does finish mounting, it hides
+  // that textarea (display:none) with no code anywhere - ours or the
+  // library's - that transfers focus to the new view first, so the browser
+  // just drops focus to <body>. Retry a few animation frames until the
+  // real view shows up and grab focus there instead (measured: on this
+  // page CM6 is ready within 1-2 frames, so 20 is a generous ceiling, not
+  // an expected count).
+  if (!(rec.annotator && rec.annotator.view) && attempt < 20) {
+    requestAnimationFrame(() => focusSegmentEditor(id, attempt + 1));
+  }
 }
 
 // Moves the active segment by `dir` (+1/-1) in start-time order, seeks the
@@ -926,6 +941,7 @@ function addSegment(start, end, speakerOverride) {
   if (wf.isReady()) wf.setRegions(s.segments);
   scheduleSave();
   selectRow(seg.id, false);
+  focusSegmentEditor(seg.id); // straight into the new segment's own text field, ready to type
 }
 
 function removeSegment(id) {
@@ -1003,6 +1019,7 @@ function mergeWithNext(id) {
     }
   }
   selectRow(cur.id, false); // shift focus to the merged segment, whether or not it (or `next`) was already active
+  focusSegmentEditor(cur.id); // straight into its text field, ready to type
 }
 
 // Splits whichever segment the playhead currently sits inside into two,
