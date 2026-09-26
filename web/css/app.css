@@ -175,9 +175,12 @@ main > section { flex: 1; min-height: 0; }
 }
 /* Sits between two segment cards (a flex sibling of .seg-row in #seg-list,
    not an overlay on either one) - adds a new segment right after the card
-   above it. */
-.seg-gap { display: flex; justify-content: center; }
-.seg-gap-btn {
+   above it, or merges it with the one below (hidden on the leading gap
+   before the first segment - see buildLeadingGap() - and disabled on the
+   last segment's own gap, since there's nothing after it to merge into). */
+.seg-gap { display: flex; justify-content: center; gap: 6px; }
+.seg-gap-btn,
+.seg-merge-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -193,6 +196,9 @@ main > section { flex: 1; min-height: 0; }
   transition: 0.15s;
 }
 .seg-gap-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.seg-merge-btn:hover { border-color: var(--warn); color: var(--warn); background: #fdf3e3; }
+.seg-merge-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.seg-merge-btn:disabled:hover { border-color: #c9c3da; color: var(--muted); background: transparent; }
 .seg-row {
   background: var(--card);
   border: 1px solid var(--line);

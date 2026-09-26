@@ -320,17 +320,23 @@ function buildRow(seg) {
   };
   const host = row.querySelector(".rsml-host");
   const output = row.querySelector(".rsml-output");
-  // A small "add segment after this one" control rendered as its own sibling
-  // in #seg-list, between this row and the next, rather than a button
-  // inline in the row's own toolbar.
+  // A small "add segment after this one" / "merge with next" control
+  // rendered as its own sibling in #seg-list, between this row and the
+  // next, rather than buttons inline in the row's own toolbar. The merge
+  // button starts enabled and gets disabled by reindex() below whenever
+  // this segment turns out to be the last one (nothing to merge into).
   const gapEl = document.createElement("div");
   gapEl.className = "seg-gap";
-  gapEl.innerHTML = '<button class="seg-gap-btn" title="Add segment after this one"><i class="bi bi-plus-lg"></i></button>';
-  gapEl.querySelector("button").onclick = () => {
+  gapEl.innerHTML =
+    '<button class="seg-gap-btn" title="Add segment after this one"><i class="bi bi-plus-lg"></i></button>' +
+    '<button class="seg-merge-btn" title="Merge with next segment"><i class="bi bi-arrows-collapse"></i></button>';
+  gapEl.querySelector(".seg-gap-btn").onclick = () => {
     const span = Math.max(1, seg.end - seg.start);
     addSegment(seg.end, wav.getDuration() ? Math.min(seg.end + span, wav.getDuration()) : seg.end + span);
   };
-  const rec = { seg, el: row, host, output, gapEl, plainEl: null, textarea: null, annotator: null, active: false, els };
+  const mergeBtn = gapEl.querySelector(".seg-merge-btn");
+  mergeBtn.onclick = () => mergeWithNext(seg.id);
+  const rec = { seg, el: row, host, output, gapEl, mergeBtn, plainEl: null, textarea: null, annotator: null, active: false, els };
   rows.set(seg.id, rec);
 
   setCollapsed(rec); // start collapsed; IntersectionObserver upgrades it
@@ -691,7 +697,13 @@ function reindex() {
   const s = getState();
   s.segments.forEach((seg, i) => {
     const r = rows.get(seg.id);
-    if (r) r.els.idx.textContent = i + 1;
+    if (r) {
+      r.els.idx.textContent = i + 1;
+      // Nothing to merge into once this is the last segment - recomputed
+      // here (rather than once at row-build time) since which segment is
+      // last can change any time the list does.
+      if (r.mergeBtn) r.mergeBtn.disabled = i === s.segments.length - 1;
+    }
   });
   const n = document.getElementById("seg-count-n");
   if (n) n.textContent = s.segments.length;
@@ -893,6 +905,61 @@ function removeSegment(id) {
   document.getElementById("editor-empty").hidden = s.segments.length > 0;
   if (wf.isReady()) wf.setRegions(s.segments);
   scheduleSave();
+}
+
+// Merges a segment into the one right after it in start-time order: the
+// combined span keeps this segment's id/start and the next one's end, RSML
+// text concatenated with a space, this segment's speaker (falling back to
+// the next one's only if this one has none), and re-opens for review
+// (verified resets) since the combined text is new. Removing the *next*
+// segment (rather than this one) reuses removeSegment() as-is for the
+// reindex/verify-count/waveform-regions/save bookkeeping it already does,
+// leaving only this row's own display to refresh below.
+function mergeWithNext(id) {
+  const s = getState();
+  const idx = s.segments.findIndex((x) => x.id === id);
+  if (idx === -1 || idx >= s.segments.length - 1) return; // already last - nothing to merge into
+  const cur = s.segments[idx];
+  const next = s.segments[idx + 1];
+
+  // Pull in any live-edited text neither has synced to state yet (same
+  // reason sweep()/deactivate() call this before reading rec.seg.rsml).
+  const curRec = rows.get(cur.id);
+  const nextRec = rows.get(next.id);
+  if (curRec) syncOne(curRec);
+  if (nextRec) syncOne(nextRec);
+
+  cur.end = next.end;
+  cur.rsml = [cur.rsml, next.rsml].map((t) => (t || "").trim()).filter(Boolean).join(" ");
+  if (cur.speaker == null) cur.speaker = next.speaker;
+  cur.verified = false;
+
+  removeSegment(next.id);
+
+  if (curRec) {
+    curRec.el.classList.remove("verified");
+    curRec.els.check.checked = false;
+    curRec.els.speaker.innerHTML = speakerOptionsHtml(cur.speaker);
+    refreshRowTimes(cur);
+    if (curRec.active) {
+      // Tear down and remount to get CM6/the preview to pick up the new
+      // merged text, without needing rsml's internal API surface -
+      // deliberately NOT going through deactivate() here, since it calls
+      // syncOne() first, which would read the *old*, still-unmerged text
+      // straight out of the live CM6 doc and stomp the merge right back
+      // out of cur.rsml before activate() below ever got to use it.
+      try {
+        curRec.annotator && curRec.annotator.destroy && curRec.annotator.destroy();
+      } catch {}
+      curRec.annotator = null;
+      curRec.textarea = null;
+      curRec.active = false;
+      curRec.el.classList.remove("cm-live");
+      activate(cur.id, { focus: false });
+    } else {
+      setCollapsed(curRec);
+    }
+  }
 }
 
 // ------------------------------------------------------------- verified ----
