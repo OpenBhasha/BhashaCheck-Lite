@@ -244,7 +244,16 @@ function setActive(id, { scroll = false, seek = false } = {}) {
 }
 
 // While audio plays, keep the segment under the playhead active and in view.
+// Guarded to actual playback (wf.isPlaying()) because WaveSurfer's
+// "timeupdate" fires on *any* currentTime change, not just while playing -
+// including a programmatic seek like addSegment()/mergeWithNext()/
+// splitAtPlayhead()'s own selectRow() call. Without this guard, a stray
+// timeupdate landing after one of those would immediately hop activeId
+// back to whatever segment the (unrelated, stale) playhead sits in,
+// undoing the focus shift to the segment that was just added/merged/split
+// and making it look like the action had targeted the playhead instead.
 function followPlayback(t) {
+  if (!wf.isPlaying()) return;
   const segs = getState().segments;
   const current = segs.find((s) => s.id === activeId);
   if (current && t >= current.start && t < current.end) return; // still inside the active segment — don't hop to an earlier overlapping one
@@ -993,6 +1002,7 @@ function mergeWithNext(id) {
       setCollapsed(curRec);
     }
   }
+  selectRow(cur.id, false); // shift focus to the merged segment, whether or not it (or `next`) was already active
 }
 
 // Splits whichever segment the playhead currently sits inside into two,
