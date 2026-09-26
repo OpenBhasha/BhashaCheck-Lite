@@ -266,7 +266,7 @@ function followPlayback(t) {
 function buildLeadingGap() {
   const wrap = document.createElement("div");
   wrap.className = "seg-gap";
-  wrap.innerHTML = '<button class="seg-gap-btn" title="Add segment before the first one"><i class="bi bi-plus-lg"></i></button>';
+  wrap.innerHTML = '<button class="seg-gap-btn" title="Add segment before the first one"><i class="bi bi-plus-lg"></i> Add Segment</button>';
   wrap.querySelector("button").onclick = () => {
     const first = getState().segments[0];
     if (first) {
@@ -307,6 +307,7 @@ function buildRow(seg) {
         <div class="pane-label">Preview</div>
         <div class="rsml-output"></div>
       </div>
+      <div class="panes-resize" title="Drag to resize"></div>
     </div>`;
 
   const els = {
@@ -328,8 +329,8 @@ function buildRow(seg) {
   const gapEl = document.createElement("div");
   gapEl.className = "seg-gap";
   gapEl.innerHTML =
-    '<button class="seg-gap-btn" title="Add segment after this one"><i class="bi bi-plus-lg"></i></button>' +
-    '<button class="seg-merge-btn" title="Merge with next segment"><i class="bi bi-arrows-collapse"></i></button>';
+    '<button class="seg-gap-btn" title="Add segment after this one"><i class="bi bi-plus-lg"></i> Add Segment</button>' +
+    '<button class="seg-merge-btn" title="Merge with next segment"><i class="bi bi-arrows-collapse"></i> Merge with Next</button>';
   gapEl.querySelector(".seg-gap-btn").onclick = () => {
     const span = Math.max(1, seg.end - seg.start);
     addSegment(seg.end, wav.getDuration() ? Math.min(seg.end + span, wav.getDuration()) : seg.end + span);
@@ -340,6 +341,38 @@ function buildRow(seg) {
   rows.set(seg.id, rec);
 
   setCollapsed(rec); // start collapsed; IntersectionObserver upgrades it
+
+  // One shared puller resizes both the transcription editor and the preview
+  // together (a --panes-h custom property both panes read their height from),
+  // instead of each pane growing independently to its own content.
+  const panesEl = row.querySelector(".seg-panes");
+  const resizer = row.querySelector(".panes-resize");
+  const PANES_MIN_H = 96;
+  const PANES_MAX_H = 800;
+  let resizeStartY = 0;
+  let resizeStartH = 0;
+  resizer.onpointerdown = (e) => {
+    e.preventDefault();
+    resizeStartY = e.clientY;
+    resizeStartH = host.getBoundingClientRect().height || 320;
+    resizer.classList.add("dragging");
+    try {
+      resizer.setPointerCapture(e.pointerId);
+    } catch {}
+  };
+  resizer.onpointermove = (e) => {
+    if (!resizer.hasPointerCapture || !resizer.hasPointerCapture(e.pointerId)) return;
+    const h = Math.max(PANES_MIN_H, Math.min(PANES_MAX_H, resizeStartH + (e.clientY - resizeStartY)));
+    panesEl.style.setProperty("--panes-h", `${h}px`);
+  };
+  const endResize = (e) => {
+    resizer.classList.remove("dragging");
+    try {
+      resizer.releasePointerCapture(e.pointerId);
+    } catch {}
+  };
+  resizer.onpointerup = endResize;
+  resizer.onpointercancel = endResize;
 
   els.check.onchange = () => {
     seg.verified = els.check.checked;
@@ -853,7 +886,7 @@ function handleShortcut(e) {
 
 // ---------------------------------------------------------- segments ----
 
-function addSegment(start, end) {
+function addSegment(start, end, speakerOverride) {
   const s = getState();
   const dur = wav.getDuration() || end || start + 2;
   const seg = {
@@ -861,7 +894,7 @@ function addSegment(start, end) {
     start: Math.max(0, Math.min(start, dur)),
     end: Math.max(start + 0.02, Math.min(end, dur)),
     rsml: "",
-    speaker: defaultSpeakerId(s),
+    speaker: speakerOverride !== undefined ? speakerOverride : defaultSpeakerId(s),
     verified: false,
   };
   s.segments.push(seg);
@@ -960,6 +993,34 @@ function mergeWithNext(id) {
       setCollapsed(curRec);
     }
   }
+}
+
+// Splits whichever segment the playhead currently sits inside into two,
+// right at that point: this segment keeps [start, playhead], a new one
+// gets [playhead, end] with the same speaker. There's no way to know where
+// mid-transcript the playhead falls, so the RSML text isn't auto-split -
+// it all stays on the first half, and the new half starts blank.
+function splitAtPlayhead() {
+  if (!wf.isReady()) return;
+  const t = wf.getCurrentTime();
+  const s = getState();
+  const seg = s.segments.find((x) => t > x.start + 0.02 && t < x.end - 0.02);
+  if (!seg) {
+    toast("Move the playhead inside a segment to split it there.", "info");
+    return;
+  }
+  const rec = rows.get(seg.id);
+  if (rec) syncOne(rec);
+  const originalEnd = seg.end;
+  const speaker = seg.speaker;
+  seg.end = t;
+  seg.verified = false;
+  refreshRowTimes(seg);
+  if (rec) {
+    rec.el.classList.remove("verified");
+    rec.els.check.checked = false;
+  }
+  addSegment(t, originalEnd, speaker); // reindexes, redraws waveform regions, and saves - covers seg's own shrunk end too
 }
 
 // ------------------------------------------------------------- verified ----
@@ -1073,6 +1134,7 @@ function wireFontSize() {
 function wireWaveformControls() {
   bind("wf-play", () => wf.isReady() && wf.playPause());
   bind("wf-stop", () => wf.isReady() && wf.stop());
+  bind("wf-split", splitAtPlayhead);
 
   const zoom = document.getElementById("wf-zoom");
   if (zoom) {
