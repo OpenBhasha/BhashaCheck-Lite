@@ -465,7 +465,8 @@ function activate(id, { focus }) {
     // .opts (see rsmlSettings.js), so it can be spread in as-is — same
     // shape the constructor already expects.
     rec.annotator = new RSMLAnnotator({ textarea: ta, output: rec.output, ...(getState().rsmlConfig || {}) });
-    patchCodeMixBoost(rec.annotator);
+    patchCompletions(rec.annotator);
+    patchStatusAlwaysVisible(rec.annotator);
   } catch (err) {
     console.warn("RSMLAnnotator failed, plain textarea fallback", err);
     rec.annotator = null;
@@ -528,37 +529,113 @@ export function refreshSpeakerDropdowns() {
   }
 }
 
-// Boosts the default code-mixing language to the very top of the `!`
-// autocomplete popup, ahead of even rsml's own "! (unspecified language)"
-// entry. Reading rsml@3.2.0's source directly turned up the actual hook:
-// its "!" completion source builds `{ label: "! (unspecified language)",
-// boost: 1 }` followed by every real language with no boost field at all
-// (0), and CodeMirror's autocomplete ranks strictly by boost first
-// (score = matchScore + boost, sorted descending - see
-// @codemirror/autocomplete's sortOptions()), alphabetical only breaking
-// ties. There's no public RSMLAnnotator option that reaches that boost
-// value... but the method that builds it, `_cmComplete`, is invoked inside
-// the library's own closure as `self._cmComplete(ctx)` where `self` is the
-// annotator instance itself (captured once, not the shared prototype) - so
-// shadowing that one method on the instance intercepts every completion
-// this row's editor ever requests, cleanly, per row, without touching the
-// library's class or any other row.
-function patchCodeMixBoost(annotator) {
-  if (!annotator || annotator.__codemixPatched || typeof annotator._cmComplete !== "function") return;
-  annotator.__codemixPatched = true;
+// Mirrors rsml's own trigger regex exactly (see its _cmComplete source) so
+// patchCompletions() can tell which prefix a given completion result came
+// from without sniffing option labels for it.
+const RSML_TRIGGER_RE = /\$\$[\w-]*|!![\w-]*|[@#!$&][\w-]*/;
+function triggerPrefix(ctx) {
+  const m = ctx.matchBefore(RSML_TRIGGER_RE);
+  if (!m) return null;
+  return m.text.startsWith("$$") ? "$$" : m.text.startsWith("!!") ? "!!" : m.text[0];
+}
+
+// Mirrors rsml's own internal bracketApply exactly (see the `!`/`#`/`$`/
+// `$$`/`!!` cases in its _cmComplete source): scaffold-aware apply that
+// reuses an existing `[verbatim]()` right after the trigger if present (the
+// shape wrap-on-selection produces), otherwise inserts the full
+// `typeSegment[]()` scaffold with the caret dropped between the brackets.
+function bracketApply(typeSegment) {
+  return (view, completion, from, to) => {
+    const doc = view.state.doc;
+    const after = doc.sliceString(to, Math.min(to + 500, doc.length));
+    const scaf = /^\[([^\]]*)\](\([^)]*\))?/.exec(after);
+    if (scaf) {
+      const verbatim = scaf[1];
+      view.dispatch({
+        changes: { from, to, insert: typeSegment },
+        selection: { anchor: from + typeSegment.length + 1 + verbatim.length },
+        userEvent: "input.complete",
+      });
+    } else {
+      const insert = `${typeSegment}[]()`;
+      view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + typeSegment.length + 1 }, userEvent: "input.complete" });
+    }
+  };
+}
+
+// Shadows this row's RSMLAnnotator._cmComplete (an instance property lookup
+// inside the library's own closure - `self._cmComplete(ctx)`, where `self`
+// is captured once per instance, not the shared prototype - so reassigning
+// it here intercepts every completion this row's editor ever requests,
+// cleanly, per row, without touching the library's class or any other row)
+// to layer two things the library's public options can't reach:
+//
+// 1. Boosts the default code-mixing language to the very top of the `!`
+//    popup, ahead of even rsml's own "! (unspecified language)" entry. Its
+//    "!" completion source builds `{ label: "! (unspecified language)",
+//    boost: 1 }` followed by every real language with no boost at all (0),
+//    and CodeMirror's autocomplete ranks strictly by boost first
+//    (score = matchScore + boost, sorted descending — see
+//    @codemirror/autocomplete's sortOptions()), alphabetical only breaking
+//    ties — confirmed by reading that package's source directly.
+// 2. Appends this project's configured accents (state.accents, edited in
+//    Settings -> RSML tags -> Accents) to the `$` popup, the same way
+//    dialects/domains present theirs — rsml has no accents vocabulary of
+//    its own at all (see rsmlSettings.js's header comment), so without this
+//    the `$` popup would only ever offer "unspecified accent".
+function patchCompletions(annotator) {
+  if (!annotator || annotator.__completionsPatched || typeof annotator._cmComplete !== "function") return;
+  annotator.__completionsPatched = true;
   const original = annotator._cmComplete.bind(annotator);
   annotator._cmComplete = (ctx) => {
     const result = original(ctx);
+    if (!result || !Array.isArray(result.options)) return result;
+
     const code = getState().defaultCodeMixLanguage;
-    if (code && result && Array.isArray(result.options)) {
+    if (code) {
       const i = result.options.findIndex((o) => o.label === `!${code}`);
       if (i > 0) {
         const [opt] = result.options.splice(i, 1);
         result.options.unshift({ ...opt, boost: 99 });
       }
     }
+
+    if (triggerPrefix(ctx) === "$") {
+      const accents = getState().accents || {};
+      const extra = Object.keys(accents)
+        .sort()
+        .map((id) => ({ label: `$${id}`, detail: accents[id] || null, apply: bracketApply(`$${id}`) }));
+      result.options = result.options.concat(extra);
+    }
+
     return result;
   };
+}
+
+// Shadows _updateStatus the same way (see patchCompletions() above for why
+// that's safe) so the error/warning status bar never fully disappears. The
+// library's own _updateStatus() sets display:none and empties it outright
+// whenever the current segment has zero errors/warnings — meaning on any
+// segment without a mistake in it (i.e. most of the time), there is no
+// status bar at all, which reads as "this feature doesn't exist" rather
+// than "this segment is clean". Force it visible either way, showing a
+// quiet confirmation instead of nothing.
+function patchStatusAlwaysVisible(annotator) {
+  if (!annotator || annotator.__statusPatched || typeof annotator._updateStatus !== "function") return;
+  annotator.__statusPatched = true;
+  const original = annotator._updateStatus.bind(annotator);
+  annotator._updateStatus = () => {
+    original();
+    const el = annotator._statusEl;
+    if (el && el.style.display === "none") {
+      el.style.display = "";
+      el.innerHTML = `<span class="rsml-status-ok">&check; 0 errors</span>`;
+    }
+  };
+  // The constructor's own initial call (before this patch could exist yet)
+  // ran unpatched, so repaint immediately rather than waiting for the first
+  // edit to reveal a clean segment's bar.
+  annotator._updateStatus();
 }
 
 function speakerOptionsHtml(selectedId) {
@@ -910,6 +987,8 @@ function wireChrome() {
   const all = document.getElementById("verify-all");
   if (all) all.onchange = () => setAllVerified(all.checked);
 
+  wireFontSize();
+
   bind("export-srt-btn", () => {
     const s = getState();
     if (!s.segments.length) {
@@ -919,6 +998,36 @@ function wireChrome() {
     const name = (s.audioMeta && s.audioMeta.name) || "transcript";
     downloadSRT(name, buildSRT(s.segments, s.speakers));
   });
+}
+
+// A-/A+ in the toolbar scale every segment's transcription/preview text at
+// once via the --rsml-font-size CSS custom property (see app.css) rather
+// than touching each row - .rsml-host, .rsml-output and .rsml-plain all
+// read that one variable, and CM6's own .cm-content picks it up through
+// ordinary inheritance (rsml sets no font-size of its own on it).
+const FONT_SIZE_MIN = 10;
+const FONT_SIZE_MAX = 22;
+const FONT_SIZE_STEP = 1;
+
+function applyFontSize() {
+  const size = getState().ui.fontSize || 13.5;
+  document.documentElement.style.setProperty("--rsml-font-size", `${size}px`);
+  const dec = document.getElementById("font-size-dec");
+  const inc = document.getElementById("font-size-inc");
+  if (dec) dec.disabled = size <= FONT_SIZE_MIN;
+  if (inc) inc.disabled = size >= FONT_SIZE_MAX;
+}
+
+function wireFontSize() {
+  const step = (delta) => {
+    const ui = getState().ui;
+    ui.fontSize = Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, (ui.fontSize || 13.5) + delta));
+    applyFontSize();
+    scheduleSave();
+  };
+  bind("font-size-dec", () => step(-FONT_SIZE_STEP));
+  bind("font-size-inc", () => step(FONT_SIZE_STEP));
+  applyFontSize();
 }
 
 function wireWaveformControls() {

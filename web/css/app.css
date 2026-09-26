@@ -12,6 +12,7 @@
   --err: #d23c3c;
   --radius: 12px;
   --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --rsml-font-size: 13.5px; /* set inline by editor.js's A-/A+ toolbar control */
 }
 
 * { box-sizing: border-box; }
@@ -143,6 +144,21 @@ main > section { flex: 1; min-height: 0; }
   cursor: pointer;
 }
 .verify-toggle input { width: 15px; height: 15px; }
+.font-size-ctl { display: flex; align-items: center; gap: 1px; }
+.font-size-ctl button {
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.font-size-ctl button:first-child { border-radius: 6px 0 0 6px; border-right: none; }
+.font-size-ctl button:last-child { border-radius: 0 6px 6px 0; }
+.font-size-ctl button:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+.font-size-ctl button:disabled { color: var(--line); cursor: not-allowed; }
 
 .editor-empty { text-align: center; color: var(--muted); padding: 30px 20px; margin: 0; }
 
@@ -279,38 +295,64 @@ main > section { flex: 1; min-height: 0; }
    instead (flex-basis: the height property, so this slots into the same
    flex-grow-to-fill mechanism the default case already uses). */
 .rsml-host {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   height: var(--panes-h, auto);
   min-height: 96px;
 }
 .rsml-textarea {
+  flex: 1 1 auto;
   width: 100%;
   height: 100%;
   border: none;
   resize: none;
   padding: 12px;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: var(--rsml-font-size);
   line-height: 1.7;
   outline: none;
   color: var(--ink);
 }
-.cm-editor { height: 100%; }
+/* CM6's own .cm-editor sets height:100% (rsml's injected base CSS) - fine
+   when it's the only child of .rsml-host, but once the library also mounts
+   its status bar as a sibling after it (see patchStatusAlwaysVisible() in
+   editor.js - it's kept visible at all times now, not just on error), 100%
+   would overflow a fixed --panes-h. flex:1 1 auto instead lets it fill
+   whatever space the status bar doesn't need. */
+.rsml-host .cm-editor { height: auto; flex: 1 1 auto; min-height: 0; }
+.rsml-host .rsml-editor-status { flex: 0 0 auto; }
+.rsml-editor-status .rsml-status-ok { color: var(--ok); font-weight: 600; }
+/* rsml bakes the CM6 editor's font-size in once at mount time (it reads
+   getComputedStyle(textarea).fontSize into a fixed EditorView.theme() value
+   — see the library's own activate() source), so a plain inheritable
+   font-size on an ancestor only takes effect for rows mounted *after* it
+   changes (a reload remounts every row, which is why that alone looked
+   like it worked). !important forces every already-open row's .cm-content
+   to track --rsml-font-size live too, on every A-/A+ click, not just after
+   a reload. */
+.rsml-host .cm-content { font-size: var(--rsml-font-size) !important; }
 .rsml-output {
   flex: 1 1 auto;
   height: var(--panes-h, auto);
   min-height: 96px;
   padding: 12px;
-  font-size: 13.5px;
   line-height: 1.8;
   overflow-y: auto;
 }
+/* Scoped to .rsml-content (the actual rendered text), not the whole
+   .rsml-output container — that container also holds the Bootstrap
+   verbatim/normalized switch (.form-check.form-switch), whose knob and
+   label size in em units off the inherited font-size; a font-size on
+   .rsml-output itself was visibly growing/shrinking the switch along with
+   the text, which isn't part of "the transcript text got bigger". */
+.rsml-output .rsml-content { font-size: var(--rsml-font-size); }
 .rsml-plain {
   height: 100%;
   padding: 12px;
   overflow-y: auto;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: var(--rsml-font-size);
   line-height: 1.7;
   white-space: pre-wrap;
   cursor: text;

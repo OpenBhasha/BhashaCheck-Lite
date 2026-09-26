@@ -7,6 +7,16 @@
 // domains) is discovered from a live annotator's own `.opts`, so a future
 // library version adding another category shows up automatically.
 //
+// One exception: "Accents" (the `$id[...](...)` tag). rsml has no accents
+// category at all — its own `$` completion is a single static "unspecified"
+// entry with no backing vocabulary, no add()/remove() support, and the
+// validator explicitly treats it as freeform (confirmed by reading
+// rsml@3.2.0's source directly: CATEGORY_SPECS has no "accents" key, and
+// there's no opts.accents anywhere). So this one category is hand-rolled —
+// stored in state.accents ({id: name}) rather than routed through an
+// annotator at all — and editor.js's patchCompletions() feeds it into the
+// `$` autocomplete itself, the same way dialects/domains present theirs.
+//
 // Takes its app-shell hooks (getState/scheduleSave/toast/escapeHtml/
 // applyToOpenRows) as a `deps` parameter rather than importing them from
 // main.js/editor.js, keeping this a plain leaf module — see main.js's
@@ -136,6 +146,7 @@ export function renderRsmlSettings(root, deps) {
   for (const key of vocabCategories(annotator)) {
     root.appendChild(buildCategory(key, annotator, deps));
   }
+  root.appendChild(buildAccentsCategory(deps));
 }
 
 // Runs one add()/remove() on the shared config annotator, and — only if it
@@ -319,6 +330,112 @@ function buildMapBody(key, annotator, deps, rerender) {
   };
   addRow.querySelector("button").onclick = doAdd;
   for (const el of [codeInput, labelInput]) {
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        doAdd();
+      }
+    });
+  }
+  frag.appendChild(addRow);
+
+  return frag;
+}
+
+// --------------------------------------------------------------- accents ----
+//
+// Same map-category look as buildMapBody() above, but reading/writing
+// state.accents directly instead of an annotator's .opts — see this file's
+// header comment for why accents can't go through the library's own
+// add()/remove() at all.
+
+function buildAccentsCategory(deps) {
+  const { getState } = deps;
+
+  const det = document.createElement("details");
+  det.className = "rsml-cat";
+
+  const summary = document.createElement("summary");
+  const countEl = document.createElement("span");
+  countEl.className = "rsml-cat-count";
+  summary.append("Accents ", countEl);
+  det.appendChild(summary);
+
+  const hint = document.createElement("p");
+  hint.className = "rsml-cat-hint muted small";
+  hint.textContent = "Tagged as $ID[text](normalized) for accent-specific phrasing. App-only (rsml has no accents vocabulary of its own), so unlike the categories above these are never flagged by the validator.";
+  det.appendChild(hint);
+
+  const body = document.createElement("div");
+  det.appendChild(body);
+
+  const rerender = () => {
+    const map = getState().accents || {};
+    countEl.textContent = Object.keys(map).length;
+    body.innerHTML = "";
+    body.appendChild(buildAccentsBody(deps, rerender));
+  };
+  rerender();
+
+  return det;
+}
+
+function buildAccentsBody(deps, rerender) {
+  const { getState, scheduleSave, toast, escapeHtml } = deps;
+  const frag = document.createDocumentFragment();
+  const state = getState();
+  if (!state.accents) state.accents = {};
+  const map = state.accents;
+
+  const rowsWrap = document.createElement("div");
+  rowsWrap.className = "rsml-map-rows";
+  const codes = Object.keys(map).sort();
+  for (const id of codes) {
+    const row = document.createElement("div");
+    row.className = "rsml-map-row";
+    row.innerHTML =
+      `<code class="rsml-map-code">${escapeHtml(id)}</code>` +
+      `<span class="rsml-map-label">${escapeHtml(map[id])}</span>` +
+      `<button type="button" aria-label="Remove ${escapeHtml(id)}">&times;</button>`;
+    row.querySelector("button").onclick = () => {
+      delete map[id];
+      scheduleSave();
+      rerender();
+    };
+    rowsWrap.appendChild(row);
+  }
+  if (!codes.length) {
+    const empty = document.createElement("p");
+    empty.className = "rsml-cat-empty muted small";
+    empty.textContent = "None configured.";
+    rowsWrap.appendChild(empty);
+  }
+  frag.appendChild(rowsWrap);
+
+  const addRow = document.createElement("div");
+  addRow.className = "rsml-add-row rsml-add-row-map";
+  addRow.innerHTML =
+    `<input type="text" placeholder="id" class="form-control form-control-sm rsml-add-code" />` +
+    `<input type="text" placeholder="name" class="form-control form-control-sm rsml-add-label" />` +
+    `<button type="button" class="btn btn-sm btn-outline-secondary">Add</button>`;
+  const idInput = addRow.querySelector(".rsml-add-code");
+  const labelInput = addRow.querySelector(".rsml-add-label");
+  const doAdd = () => {
+    // $ID has to stay a single autocomplete-triggerable token — matches
+    // the [\w-] character class rsml's own trigger regex accepts.
+    const id = idInput.value.trim().replace(/[^\w-]/g, "");
+    if (!id) {
+      if (idInput.value.trim()) toast("Accent id can only contain letters, numbers, - and _.", "error");
+      return;
+    }
+    map[id] = labelInput.value.trim();
+    scheduleSave();
+    idInput.value = "";
+    labelInput.value = "";
+    rerender();
+  };
+  addRow.querySelector("button").onclick = doAdd;
+  for (const el of [idInput, labelInput]) {
     el.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
