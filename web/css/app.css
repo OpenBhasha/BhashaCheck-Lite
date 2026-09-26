@@ -155,7 +155,8 @@ main > section { flex: 1; min-height: 0; }
   padding: 5px 8px;
   cursor: pointer;
 }
-.font-size-ctl button:first-child { border-radius: 6px 0 0 6px; border-right: none; }
+.font-size-ctl button:not(:last-child) { border-right: none; }
+.font-size-ctl button:first-child { border-radius: 6px 0 0 6px; }
 .font-size-ctl button:last-child { border-radius: 0 6px 6px 0; }
 .font-size-ctl button:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
 .font-size-ctl button:disabled { color: var(--line); cursor: not-allowed; }
@@ -275,7 +276,7 @@ main > section { flex: 1; min-height: 0; }
 .time-group input:focus { outline: none; background: rgba(255, 255, 255, 0.14); border-radius: 3px; }
 .time-sep { color: var(--muted); }
 
-.seg-panes { display: grid; grid-template-columns: 1fr 1fr; align-items: stretch; position: relative; }
+.seg-panes { display: grid; grid-template-columns: 1fr 1fr; align-items: stretch; }
 .seg-pane { display: flex; flex-direction: column; min-width: 0; }
 .seg-pane + .seg-pane { border-left: 1px solid var(--line); }
 .pane-label {
@@ -288,17 +289,14 @@ main > section { flex: 1; min-height: 0; }
   background: #fcfbff;
   border-bottom: 1px solid var(--line);
 }
-/* By default each pane hugs its own content (min-height only) - the grid's
-   default stretch then pulls the shorter pane up to match the taller one, so
-   their bottom edges line up for the shared puller below. Dragging
-   .panes-resize sets --panes-h, which pins both to one explicit height
-   instead (flex-basis: the height property, so this slots into the same
-   flex-grow-to-fill mechanism the default case already uses). */
+/* Each pane hugs its own content (min-height only) - .seg-panes' grid
+   stretch (align-items: stretch) then pulls the shorter pane up to match
+   the taller one, so both always end at the same height with no manual
+   resize needed. */
 .rsml-host {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
-  height: var(--panes-h, auto);
   min-height: 96px;
 }
 .rsml-textarea {
@@ -318,8 +316,8 @@ main > section { flex: 1; min-height: 0; }
    when it's the only child of .rsml-host, but once the library also mounts
    its status bar as a sibling after it (see patchStatusAlwaysVisible() in
    editor.js - it's kept visible at all times now, not just on error), 100%
-   would overflow a fixed --panes-h. flex:1 1 auto instead lets it fill
-   whatever space the status bar doesn't need. */
+   would leave no room for the status bar. flex:1 1 auto instead lets it
+   fill whatever space the status bar doesn't need. */
 .rsml-host .cm-editor { height: auto; flex: 1 1 auto; min-height: 0; }
 .rsml-host .rsml-editor-status { flex: 0 0 auto; }
 .rsml-editor-status .rsml-status-ok { color: var(--ok); font-weight: 600; }
@@ -334,7 +332,6 @@ main > section { flex: 1; min-height: 0; }
 .rsml-host .cm-content { font-size: var(--rsml-font-size) !important; }
 .rsml-output {
   flex: 1 1 auto;
-  height: var(--panes-h, auto);
   min-height: 96px;
   padding: 12px;
   line-height: 1.8;
@@ -347,6 +344,19 @@ main > section { flex: 1; min-height: 0; }
    .rsml-output itself was visibly growing/shrinking the switch along with
    the text, which isn't part of "the transcript text got bigger". */
 .rsml-output .rsml-content { font-size: var(--rsml-font-size); }
+/* rsml always re-appends the toggle as .rsml-output's first child on every
+   render (see its _render() source: it pulls out any existing
+   .form-check, wipes the container, puts the toggle back first, the
+   content after — so it can't be moved out to somewhere like .pane-label
+   without a duplicate reappearing on the next keystroke). Floating it
+   right instead keeps it a child of .rsml-output (the library stays happy)
+   but out of the block flow, so .rsml-content's first line starts at the
+   same y as the editor pane's — text wraps around the switch rather than
+   sitting on a line of its own beneath it. */
+.rsml-output .form-check.form-switch {
+  float: right;
+  margin: 0 0 4px 10px !important;
+}
 .rsml-plain {
   height: 100%;
   padding: 12px;
@@ -359,41 +369,6 @@ main > section { flex: 1; min-height: 0; }
   color: var(--ink);
 }
 .rsml-plain.is-empty { color: var(--muted); font-style: italic; font-family: inherit; }
-
-/* One puller, centered on the shared border at the bottom of the pane pair,
-   drags --panes-h to resize the editor and preview together. */
-.panes-resize {
-  position: absolute;
-  left: 50%;
-  bottom: 2px;
-  transform: translateX(-50%);
-  width: 44px;
-  height: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--card);
-  cursor: ns-resize;
-  touch-action: none;
-  z-index: 3;
-}
-.panes-resize::before {
-  content: "";
-  width: 26px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--line);
-}
-.panes-resize:hover,
-.panes-resize.dragging {
-  border-color: var(--accent);
-}
-.panes-resize:hover::before,
-.panes-resize.dragging::before {
-  background: var(--accent);
-}
 
 /* --- bottom: waveform + foot --- */
 .editor-bottom { border-top: 1px solid var(--line); background: var(--card); }

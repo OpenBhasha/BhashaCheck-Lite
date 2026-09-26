@@ -307,7 +307,6 @@ function buildRow(seg) {
         <div class="pane-label">Preview</div>
         <div class="rsml-output"></div>
       </div>
-      <div class="panes-resize" title="Drag to resize"></div>
     </div>`;
 
   const els = {
@@ -335,38 +334,6 @@ function buildRow(seg) {
   rows.set(seg.id, rec);
 
   setCollapsed(rec); // start collapsed; IntersectionObserver upgrades it
-
-  // One shared puller resizes both the transcription editor and the preview
-  // together (a --panes-h custom property both panes read their height from),
-  // instead of each pane growing independently to its own content.
-  const panesEl = row.querySelector(".seg-panes");
-  const resizer = row.querySelector(".panes-resize");
-  const PANES_MIN_H = 96;
-  const PANES_MAX_H = 800;
-  let resizeStartY = 0;
-  let resizeStartH = 0;
-  resizer.onpointerdown = (e) => {
-    e.preventDefault();
-    resizeStartY = e.clientY;
-    resizeStartH = host.getBoundingClientRect().height || 320;
-    resizer.classList.add("dragging");
-    try {
-      resizer.setPointerCapture(e.pointerId);
-    } catch {}
-  };
-  resizer.onpointermove = (e) => {
-    if (!resizer.hasPointerCapture || !resizer.hasPointerCapture(e.pointerId)) return;
-    const h = Math.max(PANES_MIN_H, Math.min(PANES_MAX_H, resizeStartH + (e.clientY - resizeStartY)));
-    panesEl.style.setProperty("--panes-h", `${h}px`);
-  };
-  const endResize = (e) => {
-    resizer.classList.remove("dragging");
-    try {
-      resizer.releasePointerCapture(e.pointerId);
-    } catch {}
-  };
-  resizer.onpointerup = endResize;
-  resizer.onpointercancel = endResize;
 
   els.check.onchange = () => {
     seg.verified = els.check.checked;
@@ -1008,9 +975,10 @@ function wireChrome() {
 const FONT_SIZE_MIN = 10;
 const FONT_SIZE_MAX = 22;
 const FONT_SIZE_STEP = 1;
+const FONT_SIZE_DEFAULT = 13.5;
 
 function applyFontSize() {
-  const size = getState().ui.fontSize || 13.5;
+  const size = getState().ui.fontSize || FONT_SIZE_DEFAULT;
   document.documentElement.style.setProperty("--rsml-font-size", `${size}px`);
   const dec = document.getElementById("font-size-dec");
   const inc = document.getElementById("font-size-inc");
@@ -1021,12 +989,17 @@ function applyFontSize() {
 function wireFontSize() {
   const step = (delta) => {
     const ui = getState().ui;
-    ui.fontSize = Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, (ui.fontSize || 13.5) + delta));
+    ui.fontSize = Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, (ui.fontSize || FONT_SIZE_DEFAULT) + delta));
     applyFontSize();
     scheduleSave();
   };
   bind("font-size-dec", () => step(-FONT_SIZE_STEP));
   bind("font-size-inc", () => step(FONT_SIZE_STEP));
+  bind("font-size-reset", () => {
+    getState().ui.fontSize = FONT_SIZE_DEFAULT;
+    applyFontSize();
+    scheduleSave();
+  });
   applyFontSize();
 }
 
