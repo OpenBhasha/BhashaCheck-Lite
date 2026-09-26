@@ -972,10 +972,10 @@ function wireChrome() {
 // than touching each row - .rsml-host, .rsml-output and .rsml-plain all
 // read that one variable, and CM6's own .cm-content picks it up through
 // ordinary inheritance (rsml sets no font-size of its own on it).
-const FONT_SIZE_MIN = 10;
-const FONT_SIZE_MAX = 22;
+const FONT_SIZE_MIN = 12;
+const FONT_SIZE_MAX = 20;
 const FONT_SIZE_STEP = 1;
-const FONT_SIZE_DEFAULT = 13.5;
+const FONT_SIZE_DEFAULT = 16;
 
 function applyFontSize() {
   const size = getState().ui.fontSize || FONT_SIZE_DEFAULT;

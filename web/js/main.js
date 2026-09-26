@@ -24,7 +24,7 @@ const newState = () => ({
   accents: {}, // { id: name } - app-only vocabulary for $id[...](...) accent tags; rsml itself has
   // no accents category (no add()/remove() support, unlike dialects/domains) so this is
   // maintained here and fed into the `$` autocomplete by editor.js's patchCompletions().
-  ui: { screen: "upload", zoom: 40, speed: 1, fontSize: 13.5 },
+  ui: { screen: "upload", zoom: 40, speed: 1, fontSize: 16 },
   // null until the user customizes something in Settings -> RSML tags; a
   // straight snapshot of an RSMLAnnotator's own .opts otherwise (see
   // rsmlSettings.js). The library's own built-in defaults apply until then
