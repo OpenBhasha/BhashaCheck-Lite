@@ -178,18 +178,23 @@ main > section { flex: 1; min-height: 0; }
    above it, or merges it with the one below (hidden on the leading gap
    before the first segment - see buildLeadingGap() - and disabled on the
    last segment's own gap, since there's nothing after it to merge into).
-   A thin strip by default, expanding on hover to reveal the (otherwise
-   invisible) labeled buttons - keeps the segment list scannable while
-   still making both actions easy to find. */
+   Height is fixed - NOT animated - deliberately: an earlier version
+   animated the gap's own height on hover (14px -> 36px), which reflows
+   every row below it while the transition runs. With a real mouse that
+   moving-target effect could shift a *different* gap (or the segment row
+   itself) under the cursor mid-hover, so a click could land on the wrong
+   pair's button even though the click handler itself was always reading
+   the right segment - the bug was the layout thrashing, not the handler.
+   Buttons now only ever animate opacity/transform (compositor-only, no
+   layout, nothing else on the page moves), inside a gap that's already
+   full height whether or not anything is visible in it. */
 .seg-gap {
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 8px;
-  height: 14px;
-  transition: height 0.15s ease;
+  height: 32px;
 }
-.seg-gap:hover { height: 36px; }
 .seg-gap-btn,
 .seg-merge-btn {
   display: flex;
@@ -206,12 +211,14 @@ main > section { flex: 1; min-height: 0; }
   white-space: nowrap;
   cursor: pointer;
   opacity: 0;
+  transform: scale(0.94);
   pointer-events: none;
-  transition: 0.15s;
+  transition: opacity 0.1s ease, transform 0.1s ease;
 }
 .seg-gap:hover .seg-gap-btn,
 .seg-gap:hover .seg-merge-btn {
   opacity: 1;
+  transform: scale(1);
   pointer-events: auto;
 }
 .seg-gap-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
