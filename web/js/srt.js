@@ -1,4 +1,10 @@
 // SRT import/export. The transcript body is the raw RSML markup, exported as-is.
+//
+// Line 3 of every cue is a machine-readable metadata line (speaker
+// gender/language, verified, flagged, note) so the format round-trips
+// losslessly through export -> import, while staying backward-compatible
+// with plain third-party SRT (or SRT exported by this app before this
+// metadata line existed) that has no such line - see META_LINE_RE below.
 
 function pad(n, w = 2) {
   return String(Math.floor(n)).padStart(w, "0");
@@ -24,6 +30,37 @@ function srtToSeconds(str) {
   );
 }
 
+// Line 3 format: fixed key order, pipe-delimited, `note=` last and
+// unsplit (takes the rest of the line) so free-text notes never need to
+// escape `|` - only a literal backslash and embedded newline are escaped,
+// via escapeNote()/unescapeNote() below.
+//   gender=<enum-or-empty>|lang=<code-or-empty>|verified=<0|1>|flagged=<0|1>|note=<escaped text>
+// An empty gender+lang (no speaker assigned) is distinct from a real
+// speaker with gender=unspecified - matters so import never invents a
+// speaker for a segment that never had one (see main.js's importSrt()).
+const META_LINE_RE = /^gender=[^|]*\|lang=[^|]*\|verified=[01]\|flagged=[01]\|note=/;
+const META_LINE_MATCH_RE = /^gender=([^|]*)\|lang=([^|]*)\|verified=([01])\|flagged=([01])\|note=(.*)$/s;
+
+function escapeNote(s) {
+  return String(s || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n");
+}
+function unescapeNote(s) {
+  return s.replace(/\\\\|\\n/g, (m) => (m === "\\n" ? "\n" : "\\"));
+}
+
+function decodeMetaLine(line) {
+  const m = line.match(META_LINE_MATCH_RE);
+  if (!m) return null;
+  const [, gender, lang, verified, flagged, rawNote] = m;
+  return {
+    gender: gender || null,
+    lang: lang || null,
+    verified: verified === "1",
+    flagged: flagged === "1",
+    note: unescapeNote(rawNote),
+  };
+}
+
 export function parseSRT(text) {
   const blocks = text.replace(/\r\n/g, "\n").split(/\n\s*\n/);
   const out = [];
@@ -37,24 +74,24 @@ export function parseSRT(text) {
     const [rawStart, rawEnd] = timeLine.split("-->");
     const start = srtToSeconds(rawStart);
     const end = srtToSeconds(rawEnd);
-    const content = lines.slice(i + 1).join("\n").trim();
-    out.push({ start, end, text: content });
+    let bodyStart = i + 1;
+    let meta = null;
+    const metaLine = lines[bodyStart];
+    if (metaLine && META_LINE_RE.test(metaLine)) {
+      meta = decodeMetaLine(metaLine);
+      bodyStart += 1;
+    }
+    const content = lines.slice(bodyStart).join("\n").trim();
+    out.push({ start, end, text: content, meta });
   }
   return out;
 }
 
-const GENDER_LABELS = { male: "Male", female: "Female", other: "Other", unspecified: "Unspecified" };
-
-// A "Speaker N (gender, lang)" line before the segment's own text when it
-// has an assigned speaker (any &sN-start/&sN-end an annotator typed for a
-// minority/interjecting speaker is already part of seg.rsml and passes
-// through unchanged — this is only the segment's own default speaker).
-function speakerHeaderLine(speakerId, speakers) {
-  if (speakerId == null) return null;
-  const sp = (speakers || []).find((s) => s.id === speakerId);
-  if (!sp) return `Speaker ${speakerId}`;
-  const gender = GENDER_LABELS[sp.gender] || "Unspecified";
-  return `Speaker ${sp.id} (${gender}, ${sp.nativeLanguage || "?"})`;
+function metaLine(seg, speakers) {
+  const sp = seg.speaker != null ? (speakers || []).find((s) => s.id === seg.speaker) : null;
+  const gender = sp ? sp.gender || "" : "";
+  const lang = sp ? sp.nativeLanguage || "" : "";
+  return `gender=${gender}|lang=${lang}|verified=${seg.verified ? "1" : "0"}|flagged=${seg.flagged ? "1" : "0"}|note=${escapeNote(seg.note)}`;
 }
 
 export function buildSRT(segments, speakers) {
@@ -63,8 +100,7 @@ export function buildSRT(segments, speakers) {
   rows.forEach((seg, idx) => {
     lines.push(String(idx + 1));
     lines.push(`${secondsToSrt(seg.start)} --> ${secondsToSrt(seg.end)}`);
-    const header = speakerHeaderLine(seg.speaker, speakers);
-    if (header) lines.push(header);
+    lines.push(metaLine(seg, speakers));
     lines.push((seg.rsml || "").trim());
     lines.push("");
   });

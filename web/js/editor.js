@@ -21,6 +21,7 @@ import {
 import * as wav from "./wav.js";
 import * as wf from "./waveform.js";
 import { buildSRT, downloadSRT } from "./srt.js";
+import { buildProjectExport, downloadJSON } from "./projectJson.js";
 import { speakerLabel, openSpeakerModal, defaultSpeakerId } from "./speakers.js";
 
 const ACTIVATE_MARGIN = "600px"; // IntersectionObserver rootMargin
@@ -292,7 +293,7 @@ function buildLeadingGap() {
 
 function buildRow(seg) {
   const row = document.createElement("div");
-  row.className = "seg-row" + (seg.verified ? " verified" : "");
+  row.className = "seg-row" + (seg.verified ? " verified" : "") + (seg.flagged ? " flagged" : "");
   row.dataset.id = seg.id;
   row.innerHTML = `
     <div class="seg-bar">
@@ -304,6 +305,7 @@ function buildRow(seg) {
       <div class="time-group" data-edge="end">${timeInputs(seg.end)}</div>
       <span class="seg-dur"></span>
       <span class="flex-spacer"></span>
+      <button class="btn btn-sm btn-outline-secondary seg-flag" title="Flag this segment / add a note"><i class="bi ${seg.flagged ? "bi-flag-fill" : "bi-flag"}"></i></button>
       <button class="btn btn-sm btn-outline-primary seg-play" title="Play this segment"><i class="bi bi-play-fill"></i></button>
       <button class="btn btn-sm btn-link text-danger seg-del" title="Delete segment"><i class="bi bi-trash"></i></button>
     </div>
@@ -324,6 +326,7 @@ function buildRow(seg) {
     idx: row.querySelector(".seg-idx"),
     dur: row.querySelector(".seg-dur"),
     play: row.querySelector(".seg-play"),
+    flag: row.querySelector(".seg-flag"),
     speaker: row.querySelector(".seg-speaker"),
     starts: row.querySelectorAll('.time-group[data-edge="start"] input'),
     ends: row.querySelectorAll('.time-group[data-edge="end"] input'),
@@ -418,6 +421,7 @@ function buildRow(seg) {
     if (!wf.isReady()) return;
     wf.toggleSegment(seg.id, (playing) => setPlayButton(seg.id, playing));
   };
+  els.flag.onclick = () => openFlagModal(seg, rec);
   row.querySelector(".seg-del").onclick = () => removeSegment(seg.id);
 
   const onTimeInput = (edge) => {
@@ -852,6 +856,42 @@ function toggleShortcutsModal(forceOpen) {
   backdrop.hidden = !show;
 }
 
+// Updates a row's flag icon/highlight from its current seg.flagged - called
+// right after the flag modal saves, and after a merge folds in the other
+// segment's flag.
+function applyFlagVisuals(rec) {
+  rec.el.classList.toggle("flagged", !!rec.seg.flagged);
+  const icon = rec.els.flag.querySelector("i");
+  icon.className = "bi " + (rec.seg.flagged ? "bi-flag-fill" : "bi-flag");
+}
+
+function openFlagModal(seg, rec) {
+  const backdrop = document.getElementById("flag-modal-backdrop");
+  const modal = document.getElementById("flag-modal");
+  if (!backdrop || !modal) return;
+  const flaggedInput = modal.querySelector("#flag-modal-flagged");
+  const noteInput = modal.querySelector("#flag-modal-note");
+  flaggedInput.checked = !!seg.flagged;
+  noteInput.value = seg.note || "";
+
+  const close = () => {
+    modal.hidden = true;
+    backdrop.hidden = true;
+  };
+  backdrop.onclick = close;
+  modal.querySelectorAll(".flag-modal-cancel").forEach((btn) => (btn.onclick = close));
+  modal.querySelector(".flag-modal-save").onclick = () => {
+    seg.flagged = flaggedInput.checked;
+    seg.note = noteInput.value.trim();
+    scheduleSave();
+    close();
+    applyFlagVisuals(rec);
+  };
+
+  modal.hidden = false;
+  backdrop.hidden = false;
+}
+
 function handleShortcut(e) {
   // Ctrl+/ always toggles the shortcuts modal, regardless of scope/focus
   // — it's a "how do I use this thing" escape hatch, useful even if focus
@@ -865,6 +905,11 @@ function handleShortcut(e) {
   if (modalOpen) {
     if (e.key === "Escape") toggleShortcutsModal(false);
     return; // modal open: don't let segment shortcuts fire underneath it
+  }
+  const flagModal = document.getElementById("flag-modal");
+  if (flagModal && !flagModal.hidden) {
+    if (e.key === "Escape") flagModal.querySelector(".flag-modal-cancel")?.click();
+    return; // flag modal open: don't let segment shortcuts fire underneath it
   }
 
   if (!inShortcutScope(e)) return;
@@ -920,6 +965,8 @@ function addSegment(start, end, speakerOverride) {
     rsml: "",
     speaker: speakerOverride !== undefined ? speakerOverride : defaultSpeakerId(s),
     verified: false,
+    flagged: false,
+    note: "",
   };
   s.segments.push(seg);
   s.segments.sort((a, b) => a.start - b.start);
@@ -991,6 +1038,8 @@ function mergeWithNext(id) {
   cur.rsml = [cur.rsml, next.rsml].map((t) => (t || "").trim()).filter(Boolean).join(" ");
   if (cur.speaker == null) cur.speaker = next.speaker;
   cur.verified = false;
+  cur.flagged = cur.flagged || next.flagged;
+  cur.note = [cur.note, next.note].map((t) => (t || "").trim()).filter(Boolean).join(" / ");
 
   removeSegment(next.id);
 
@@ -998,6 +1047,7 @@ function mergeWithNext(id) {
     curRec.el.classList.remove("verified");
     curRec.els.check.checked = false;
     curRec.els.speaker.innerHTML = speakerOptionsHtml(cur.speaker);
+    applyFlagVisuals(curRec);
     refreshRowTimes(cur);
     if (curRec.active) {
       // Tear down and remount to get CM6/the preview to pick up the new
@@ -1119,6 +1169,15 @@ function wireChrome() {
     }
     const name = (s.audioMeta && s.audioMeta.name) || "transcript";
     downloadSRT(name, buildSRT(s.segments, s.speakers));
+  });
+  bind("export-json-btn", () => {
+    const s = getState();
+    if (!s.segments.length) {
+      toast("Nothing to export yet.", "info");
+      return;
+    }
+    const name = (s.audioMeta && s.audioMeta.name) || "transcript";
+    downloadJSON(name, buildProjectExport(s));
   });
 }
 

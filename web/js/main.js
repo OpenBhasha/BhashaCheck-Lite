@@ -5,9 +5,10 @@
 import * as storage from "./storage.js";
 import * as wav from "./wav.js";
 import { parseSRT } from "./srt.js";
+import { parseProjectImport } from "./projectJson.js";
 import { mountEditor, unmountEditor } from "./editor.js";
 import { renderRsmlSettings } from "./rsmlSettings.js";
-import { renderCodeMixDefault, renderSpeakerSettings, defaultSpeakerId } from "./speakers.js";
+import { renderCodeMixDefault, renderSpeakerSettings, defaultSpeakerId, nextSpeakerId } from "./speakers.js";
 
 // ---------------------------------------------------------------- state ----
 
@@ -16,7 +17,7 @@ const newState = () => ({
   createdAt: Date.now(),
   updatedAt: Date.now(),
   audioMeta: null, // { name, type, size, duration }
-  segments: [], // { id, start, end, rsml, speaker, verified } - speaker is a speakers[].id or null
+  segments: [], // { id, start, end, rsml, speaker, verified, flagged, note } - speaker is a speakers[].id or null
   speakers: [], // { id, gender, nativeLanguage } - id is stable: monotonic, never reused; id 1 is
   // permanent (can't be removed) and doubles as "the" default speaker - see
   // speakers.js's defaultSpeakerId().
@@ -176,6 +177,20 @@ async function handleAudioFile(file) {
 
 // SRT import happens AFTER audio, from the setup screen. It keeps the audio
 // already loaded, fills the segments from the cues, and jumps to the editor.
+// Resolves a (gender, nativeLanguage) pair from an imported SRT's metadata
+// line to a roster speaker id - SRT has no stable speaker id the way a JSON
+// export does, so this is the best available identity: reuse a roster entry
+// that already has this exact pair, else create a new one.
+function resolveOrCreateSpeaker(gender, lang) {
+  const nativeLanguage = lang || null;
+  let sp = state.speakers.find((s) => s.gender === gender && (s.nativeLanguage || null) === nativeLanguage);
+  if (!sp) {
+    sp = { id: nextSpeakerId(state), gender, nativeLanguage };
+    state.speakers.push(sp);
+  }
+  return sp.id;
+}
+
 export async function importSrt(srtFile) {
   const text = await srtFile.text();
   const cues = parseSRT(text);
@@ -184,16 +199,57 @@ export async function importSrt(srtFile) {
     return;
   }
   const defaultSpeaker = defaultSpeakerId(state);
-  state.segments = cues.map((c) => ({
-    id: segId(),
-    start: c.start,
-    end: c.end,
-    rsml: c.text,
-    speaker: defaultSpeaker,
-    verified: false,
-  }));
+  const rosterSizeBefore = state.speakers.length;
+  state.segments = cues.map((c) => {
+    if (!c.meta) {
+      // Plain third-party SRT (or SRT exported before the metadata line
+      // existed) - no speaker/verified/flag/note to recover, same defaults
+      // as always.
+      return { id: segId(), start: c.start, end: c.end, rsml: c.text, speaker: defaultSpeaker, verified: false, flagged: false, note: "" };
+    }
+    const speaker = c.meta.gender ? resolveOrCreateSpeaker(c.meta.gender, c.meta.lang) : null;
+    return { id: segId(), start: c.start, end: c.end, rsml: c.text, speaker, verified: c.meta.verified, flagged: c.meta.flagged, note: c.meta.note };
+  });
+  if (state.speakers.length !== rosterSizeBefore) syncSettingsPanels(); // new roster entries created above
   await saveNow();
   toast(`Imported ${cues.length} segments from ${srtFile.name}`, "success");
+  showScreen("editor");
+}
+
+// JSON project import - a full project replace, same semantics as
+// importSrt() above, but full-fidelity: every segment field (including
+// flagged/note and the real speaker id) and the roster/settings that go
+// with it are restored exactly rather than re-derived.
+export async function importJson(jsonFile) {
+  const text = await jsonFile.text();
+  let data;
+  try {
+    data = parseProjectImport(text);
+  } catch (err) {
+    toast(`Could not read that JSON file (${err.message}).`, "error");
+    return;
+  }
+  if (!data.segments.length) {
+    toast("No segments found in that JSON file.", "error");
+    return;
+  }
+  state.segments = data.segments.map((seg) => ({
+    id: seg.id || segId(),
+    start: seg.start,
+    end: seg.end,
+    rsml: seg.rsml || "",
+    speaker: seg.speaker ?? null,
+    verified: !!seg.verified,
+    flagged: !!seg.flagged,
+    note: seg.note || "",
+  }));
+  if (Array.isArray(data.speakers)) state.speakers = data.speakers;
+  if (data.defaultCodeMixLanguage !== undefined) state.defaultCodeMixLanguage = data.defaultCodeMixLanguage;
+  if (data.accents) state.accents = data.accents;
+  if (data.rsmlConfig !== undefined) state.rsmlConfig = data.rsmlConfig;
+  syncSettingsPanels(); // roster/language/RSML-tags panels must reflect the wholesale-replaced project data
+  await saveNow();
+  toast(`Imported ${state.segments.length} segments from ${jsonFile.name}`, "success");
   showScreen("editor");
 }
 
@@ -272,6 +328,8 @@ export async function runManualVad() {
       rsml: "",
       speaker: defaultSpeaker,
       verified: false,
+      flagged: false,
+      note: "",
     }));
     await saveNow();
     toast(
@@ -316,6 +374,16 @@ function wireSetupNav() {
 
   const skipBtn = document.getElementById("setup-skip-btn");
   if (skipBtn) skipBtn.onclick = runManualVad;
+
+  const jsonBtn = document.getElementById("setup-json-btn");
+  const jsonInput = document.getElementById("json-input");
+  if (jsonBtn && jsonInput) {
+    jsonBtn.onclick = () => jsonInput.click();
+    jsonInput.addEventListener("change", () => {
+      if (jsonInput.files[0]) importJson(jsonInput.files[0]);
+      jsonInput.value = "";
+    });
+  }
 }
 
 // ------------------------------------------------------- settings drawer ----
@@ -357,6 +425,8 @@ async function rehydrate() {
 
   for (const seg of state.segments || []) {
     if (seg.verified == null) seg.verified = false;
+    if (seg.flagged == null) seg.flagged = false;
+    if (seg.note == null) seg.note = "";
   }
 
   // Migrate: state.rsmlConfig existed before this app switched to

@@ -124,8 +124,28 @@ export function renderCodeMixDefault(root, deps) {
 
 // -------------------------------------------------------------- speakers ----
 
-function nextSpeakerId(state) {
+export function nextSpeakerId(state) {
   return state.speakers.reduce((max, s) => Math.max(max, s.id), 0) + 1;
+}
+
+// "Set default speaker" in Settings: a one-shot fill for segments that have
+// no speaker assigned yet (seg.speaker == null) - never overwrites a segment
+// that's already assigned to someone. Not a persistent setting (see this
+// file's header note on why a separate defaultSpeaker field was dropped).
+export function fillUnassigned(deps, speakerId) {
+  const { getState, scheduleSave, toast } = deps;
+  const state = getState();
+  const sp = state.speakers.find((s) => s.id === speakerId);
+  if (!sp) return;
+  const targets = state.segments.filter((seg) => seg.speaker == null);
+  if (!targets.length) {
+    toast("No unassigned segments — nothing to fill.", "info");
+    return;
+  }
+  targets.forEach((seg) => (seg.speaker = speakerId));
+  scheduleSave();
+  toast(`Assigned ${speakerLabel(sp)} to ${targets.length} unassigned segment${targets.length === 1 ? "" : "s"}.`, "success");
+  deps.onRosterChange && deps.onRosterChange();
 }
 
 // Re-renders just the roster list (not the whole panel — the "Add speaker"
@@ -146,6 +166,7 @@ export function renderSpeakerSettings(root, deps) {
     <div class="spk-row" data-id="${sp.id}">
       <span class="spk-row-label">${label}${locked ? ' <span class="spk-default-tag">default</span>' : ""}</span>
       <span class="flex-spacer"></span>
+      <button type="button" class="spk-fill" aria-label="Assign ${label} to every unassigned segment" title="Assign ${label} to every segment with no speaker set yet"><i class="bi bi-person-check"></i></button>
       <button type="button" class="spk-edit" aria-label="Edit ${label}">Edit</button>
       <button type="button" class="spk-remove" aria-label="Remove ${label}"${locked ? ` disabled title="Speaker 1 can't be removed"` : ""}>&times;</button>
     </div>`;
@@ -155,6 +176,9 @@ export function renderSpeakerSettings(root, deps) {
     <div class="spk-rows">${rowsHtml || '<p class="rsml-cat-empty muted small">No speakers yet.</p>'}</div>
     <button type="button" class="btn btn-sm btn-outline-secondary spk-add">Add speaker</button>`;
 
+  root.querySelectorAll(".spk-fill").forEach((btn) => {
+    btn.onclick = () => fillUnassigned(deps, parseInt(btn.closest(".spk-row").dataset.id, 10));
+  });
   root.querySelectorAll(".spk-remove").forEach((btn) => {
     btn.onclick = () => removeSpeaker(deps, parseInt(btn.closest(".spk-row").dataset.id, 10));
   });

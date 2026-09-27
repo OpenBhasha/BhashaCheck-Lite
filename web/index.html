@@ -61,6 +61,9 @@
             <div class="dz-title">Drop an SRT file here, or click to choose</div>
           </div>
 
+          <input type="file" id="json-input" accept=".json,application/json" hidden />
+          <button id="setup-json-btn" class="btn btn-sm btn-link">Or import a JSON project file</button>
+
           <div class="setup-skip">
             <button id="setup-skip-btn" class="btn btn-outline-secondary">Skip</button>
             <p class="muted small">Skip and continue manually with automatic segmentation.</p>
@@ -129,9 +132,15 @@
               <i class="bi bi-keyboard"></i> Shortcuts
             </button>
             <span class="flex-spacer"></span>
-            <button id="export-srt-btn" class="btn btn-sm btn-success">
-              <i class="bi bi-download"></i> Export SRT
-            </button>
+            <div class="dropdown">
+              <button id="export-toggle-btn" class="btn btn-sm btn-success dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="bi bi-download"></i> Export
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li><button type="button" class="dropdown-item" id="export-srt-btn">SRT (.srt)</button></li>
+                <li><button type="button" class="dropdown-item" id="export-json-btn">JSON (.json)</button></li>
+              </ul>
+            </div>
           </div>
         </div>
       </section>
@@ -202,6 +211,26 @@
       <div class="speaker-modal-foot">
         <button type="button" class="btn btn-sm btn-outline-secondary speaker-modal-cancel">Cancel</button>
         <button type="button" class="btn btn-sm btn-primary speaker-modal-save">Add speaker</button>
+      </div>
+    </div>
+
+    <div id="flag-modal-backdrop" class="drawer-backdrop" hidden></div>
+    <div id="flag-modal" class="shortcuts-modal" hidden role="dialog" aria-modal="true" aria-label="Flag segment">
+      <div class="shortcuts-modal-head">
+        <strong>Flag segment</strong>
+        <button type="button" class="icon-btn flag-modal-cancel" aria-label="Cancel"><i class="bi bi-x-lg"></i></button>
+      </div>
+      <div class="shortcuts-modal-body speaker-modal-body">
+        <div class="form-check mb-2">
+          <input type="checkbox" class="form-check-input" id="flag-modal-flagged" />
+          <label class="form-check-label" for="flag-modal-flagged">Flag this segment for review</label>
+        </div>
+        <label class="form-label small mb-1" for="flag-modal-note">Note</label>
+        <textarea id="flag-modal-note" class="form-control" rows="4" placeholder="Add a note..."></textarea>
+      </div>
+      <div class="speaker-modal-foot">
+        <button type="button" class="btn btn-sm btn-outline-secondary flag-modal-cancel">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary flag-modal-save">Save</button>
       </div>
     </div>
 

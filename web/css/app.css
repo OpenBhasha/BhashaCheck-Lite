@@ -233,6 +233,9 @@ main > section { flex: 1; min-height: 0; }
 }
 .seg-row.verified { border-color: #bfe6cf; }
 .seg-row.verified .seg-bar { background: #f2fbf5; }
+.seg-row.flagged { border-color: var(--warn); }
+.seg-row.flagged .seg-bar { background: #fdf3e3; }
+.seg-flag .bi-flag-fill { color: var(--warn); }
 
 /* The active segment (clicked anywhere in it, its region clicked, or playback
    is inside it). Highlight reads across the bar, transcription and preview. */
@@ -694,6 +697,7 @@ main > section { flex: 1; min-height: 0; }
   padding: 1px 5px;
   margin-left: 2px;
 }
+.spk-fill,
 .spk-edit,
 .spk-remove {
   border: none;
@@ -705,6 +709,7 @@ main > section { flex: 1; min-height: 0; }
   cursor: pointer;
 }
 .spk-edit { font-size: 13px; }
+.spk-fill:hover { color: var(--accent-ink); }
 .spk-edit:hover { color: var(--accent-ink); }
 .spk-remove:hover { color: var(--err); }
 .spk-remove:disabled { color: var(--line); cursor: not-allowed; }
