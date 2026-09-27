@@ -8,7 +8,7 @@ import { parseSRT } from "./srt.js";
 import { parseProjectImport } from "./projectJson.js";
 import { mountEditor, unmountEditor } from "./editor.js";
 import { renderRsmlSettings } from "./rsmlSettings.js";
-import { renderCodeMixDefault, renderSpeakerSettings, defaultSpeakerId, nextSpeakerId } from "./speakers.js";
+import { renderCodeMixDefault, renderSpeakerSettings, defaultSpeakerId } from "./speakers.js";
 
 // ---------------------------------------------------------------- state ----
 
@@ -175,22 +175,22 @@ async function handleAudioFile(file) {
   showScreen("setup");
 }
 
-// SRT import happens AFTER audio, from the setup screen. It keeps the audio
-// already loaded, fills the segments from the cues, and jumps to the editor.
-// Resolves a (gender, nativeLanguage) pair from an imported SRT's metadata
-// line to a roster speaker id - SRT has no stable speaker id the way a JSON
-// export does, so this is the best available identity: reuse a roster entry
-// that already has this exact pair, else create a new one.
-function resolveOrCreateSpeaker(gender, lang) {
-  const nativeLanguage = lang || null;
-  let sp = state.speakers.find((s) => s.gender === gender && (s.nativeLanguage || null) === nativeLanguage);
-  if (!sp) {
-    sp = { id: nextSpeakerId(state), gender, nativeLanguage };
-    state.speakers.push(sp);
+// Recreates a roster entry at the exact id an imported SRT's metadata line
+// names (unlike matching by gender/language, this keeps any &sN-start/
+// &sN-end tokens already baked into the imported rsml text pointing at the
+// right speaker - see srt.js's header comment). A roster entry already at
+// that id (this project's own, or an earlier cue in the same import) wins -
+// this never overwrites it.
+function upsertSpeaker(sp) {
+  if (!state.speakers.some((s) => s.id === sp.id)) {
+    state.speakers.push({ id: sp.id, gender: sp.gender, nativeLanguage: sp.nativeLanguage });
+    return true;
   }
-  return sp.id;
+  return false;
 }
 
+// SRT import happens AFTER audio, from the setup screen. It keeps the audio
+// already loaded, fills the segments from the cues, and jumps to the editor.
 export async function importSrt(srtFile) {
   const text = await srtFile.text();
   const cues = parseSRT(text);
@@ -199,7 +199,7 @@ export async function importSrt(srtFile) {
     return;
   }
   const defaultSpeaker = defaultSpeakerId(state);
-  const rosterSizeBefore = state.speakers.length;
+  let rosterChanged = false;
   state.segments = cues.map((c) => {
     if (!c.meta) {
       // Plain third-party SRT (or SRT exported before the metadata line
@@ -207,10 +207,12 @@ export async function importSrt(srtFile) {
       // as always.
       return { id: segId(), start: c.start, end: c.end, rsml: c.text, speaker: defaultSpeaker, verified: false, flagged: false, note: "" };
     }
-    const speaker = c.meta.gender ? resolveOrCreateSpeaker(c.meta.gender, c.meta.lang) : null;
-    return { id: segId(), start: c.start, end: c.end, rsml: c.text, speaker, verified: c.meta.verified, flagged: c.meta.flagged, note: c.meta.note };
+    for (const sp of c.meta.speakers) {
+      if (upsertSpeaker(sp)) rosterChanged = true;
+    }
+    return { id: segId(), start: c.start, end: c.end, rsml: c.text, speaker: c.meta.primary, verified: c.meta.verified, flagged: c.meta.flagged, note: c.meta.note };
   });
-  if (state.speakers.length !== rosterSizeBefore) syncSettingsPanels(); // new roster entries created above
+  if (rosterChanged) syncSettingsPanels();
   await saveNow();
   toast(`Imported ${cues.length} segments from ${srtFile.name}`, "success");
   showScreen("editor");

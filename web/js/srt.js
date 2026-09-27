@@ -1,10 +1,24 @@
 // SRT import/export. The transcript body is the raw RSML markup, exported as-is.
 //
-// Line 3 of every cue is a machine-readable metadata line (speaker
-// gender/language, verified, flagged, note) so the format round-trips
+// Line 3 of every cue is a machine-readable metadata line (every speaker the
+// segment involves, verified, flagged, note) so the format round-trips
 // losslessly through export -> import, while staying backward-compatible
 // with plain third-party SRT (or SRT exported by this app before this
 // metadata line existed) that has no such line - see META_LINE_RE below.
+//
+// "Every speaker the segment involves" is more than just seg.speaker: an
+// annotator can also hand-type &sN-start/&sN-end inside the RSML text
+// itself for a minority/interjecting speaker (N is the same stable
+// speakers[].id as everywhere else in this app - see speakers.js's header
+// comment). Those ids live only inside the free-form rsml text, so without
+// scanning for them an SRT export would silently drop that speaker's
+// gender/language entirely, and - worse - a re-import would invent a FRESH
+// id for seg.speaker (matched by gender+language) while the &sN tokens
+// already baked into the imported text keep pointing at the old id,
+// silently breaking the reference. Encoding every referenced id explicitly
+// (not just seg.speaker) and reusing those exact ids on import (not a
+// gender/language match) fixes both problems at once - see
+// referencedSpeakerIds() and main.js's importSrt().
 
 function pad(n, w = 2) {
   return String(Math.floor(n)).padStart(w, "0");
@@ -33,13 +47,13 @@ function srtToSeconds(str) {
 // Line 3 format: fixed key order, pipe-delimited, `note=` last and
 // unsplit (takes the rest of the line) so free-text notes never need to
 // escape `|` - only a literal backslash and embedded newline are escaped,
-// via escapeNote()/unescapeNote() below.
-//   gender=<enum-or-empty>|lang=<code-or-empty>|verified=<0|1>|flagged=<0|1>|note=<escaped text>
-// An empty gender+lang (no speaker assigned) is distinct from a real
-// speaker with gender=unspecified - matters so import never invents a
-// speaker for a segment that never had one (see main.js's importSrt()).
-const META_LINE_RE = /^gender=[^|]*\|lang=[^|]*\|verified=[01]\|flagged=[01]\|note=/;
-const META_LINE_MATCH_RE = /^gender=([^|]*)\|lang=([^|]*)\|verified=([01])\|flagged=([01])\|note=(.*)$/s;
+// via escapeNote()/unescapeNote() below. `speakers=` is a comma-separated
+// list of every referenced speaker as `id:gender:lang` (lang empty when
+// not set); `primary=` says which one (if any) is this segment's own
+// seg.speaker, empty when none.
+//   primary=<id-or-empty>|speakers=<id:gender:lang,...>|verified=<0|1>|flagged=<0|1>|note=<escaped text>
+const META_LINE_RE = /^primary=[^|]*\|speakers=[^|]*\|verified=[01]\|flagged=[01]\|note=/;
+const META_LINE_MATCH_RE = /^primary=([^|]*)\|speakers=([^|]*)\|verified=([01])\|flagged=([01])\|note=(.*)$/s;
 
 function escapeNote(s) {
   return String(s || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n");
@@ -48,13 +62,30 @@ function unescapeNote(s) {
   return s.replace(/\\\\|\\n/g, (m) => (m === "\\n" ? "\n" : "\\"));
 }
 
+// Every &sN-start/&sN-end id a segment's RSML text references, in the
+// order first seen (a Set preserves insertion order; dedup matters since
+// a speaker's turn is wrapped by two tokens sharing the same N).
+function referencedSpeakerIds(rsml) {
+  const ids = new Set();
+  const re = /&s(\d+)-(?:start|end)/g;
+  let m;
+  while ((m = re.exec(rsml || ""))) ids.add(parseInt(m[1], 10));
+  return ids;
+}
+
 function decodeMetaLine(line) {
   const m = line.match(META_LINE_MATCH_RE);
   if (!m) return null;
-  const [, gender, lang, verified, flagged, rawNote] = m;
+  const [, primaryRaw, speakersRaw, verified, flagged, rawNote] = m;
+  const speakers = speakersRaw
+    ? speakersRaw.split(",").map((entry) => {
+        const [idRaw, gender, lang] = entry.split(":");
+        return { id: parseInt(idRaw, 10), gender: gender || "unspecified", nativeLanguage: lang || null };
+      })
+    : [];
   return {
-    gender: gender || null,
-    lang: lang || null,
+    primary: primaryRaw ? parseInt(primaryRaw, 10) : null,
+    speakers,
     verified: verified === "1",
     flagged: flagged === "1",
     note: unescapeNote(rawNote),
@@ -87,11 +118,20 @@ export function parseSRT(text) {
   return out;
 }
 
+function speakerEntry(id, speakers) {
+  const sp = (speakers || []).find((s) => s.id === id);
+  return `${id}:${sp ? sp.gender || "" : ""}:${sp ? sp.nativeLanguage || "" : ""}`;
+}
+
 function metaLine(seg, speakers) {
-  const sp = seg.speaker != null ? (speakers || []).find((s) => s.id === seg.speaker) : null;
-  const gender = sp ? sp.gender || "" : "";
-  const lang = sp ? sp.nativeLanguage || "" : "";
-  return `gender=${gender}|lang=${lang}|verified=${seg.verified ? "1" : "0"}|flagged=${seg.flagged ? "1" : "0"}|note=${escapeNote(seg.note)}`;
+  const ids = [];
+  if (seg.speaker != null) ids.push(seg.speaker);
+  for (const id of referencedSpeakerIds(seg.rsml)) {
+    if (!ids.includes(id)) ids.push(id);
+  }
+  const speakersField = ids.map((id) => speakerEntry(id, speakers)).join(",");
+  const primaryField = seg.speaker != null ? String(seg.speaker) : "";
+  return `primary=${primaryField}|speakers=${speakersField}|verified=${seg.verified ? "1" : "0"}|flagged=${seg.flagged ? "1" : "0"}|note=${escapeNote(seg.note)}`;
 }
 
 export function buildSRT(segments, speakers) {
