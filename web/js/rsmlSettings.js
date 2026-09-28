@@ -1,6 +1,6 @@
 // Renders the "RSML tags" section of the settings drawer. All vocabulary
 // editing goes through the `rsml` library's own RSMLAnnotator.add()/
-// .remove() (rsml@3.2.0+) — no hand-rolled tag lists, defaults, or
+// .remove() (rsml@3.3.0+) — no hand-rolled tag lists, defaults, or
 // validation here. The category set itself (currently: hesitations,
 // isolatedParalinguistics, isolatedOther, disfluencySpans,
 // paralinguisticSpans, prosodySpans, entities, languages, dialects,
@@ -11,7 +11,7 @@
 // category at all — its own `$` completion is a single static "unspecified"
 // entry with no backing vocabulary, no add()/remove() support, and the
 // validator explicitly treats it as freeform (confirmed by reading
-// rsml@3.2.0's source directly: CATEGORY_SPECS has no "accents" key, and
+// rsml@3.3.0's source directly: CATEGORY_SPECS has no "accents" key, and
 // there's no opts.accents anywhere). So this one category is hand-rolled —
 // stored in state.accents ({id: name}) rather than routed through an
 // annotator at all — and editor.js's patchCompletions() feeds it into the
@@ -21,7 +21,7 @@
 // applyToOpenRows) as a `deps` parameter rather than importing them from
 // main.js/editor.js, keeping this a plain leaf module — see main.js's
 // boot() for why that matters here.
-import RSMLAnnotator from "https://cdn.jsdelivr.net/npm/rsml@3.2.0/rsml.esm.js";
+import RSMLAnnotator from "https://cdn.jsdelivr.net/npm/rsml@3.3.0/rsml.esm.js";
 
 // Presentational only — a category missing from this map still renders
 // fine, just with its raw key title-cased as the label and no hint line.
@@ -128,7 +128,7 @@ export function renderRsmlSettings(root, deps) {
   const state = deps.getState();
   const annotator = getConfigAnnotator(state.rsmlConfig);
   // state.rsmlConfig may have been written by an older version of this
-  // feature (before rsml@3.2.0's native add/remove) in a shape the current
+  // feature (before rsml@3.3.0's native add/remove) in a shape the current
   // library doesn't produce on its own — getConfigAnnotator() above already
   // normalized it into the annotator via syncCategoryTo(); write that
   // normalized shape straight back so it doesn't keep re-triggering this

@@ -8,7 +8,7 @@
 // (IntersectionObserver + a backstop sweep) and torn down once they scroll
 // far away. A collapsed row is just a bit of text.
 
-import RSMLAnnotator from "https://cdn.jsdelivr.net/npm/rsml@3.2.0/rsml.esm.js";
+import RSMLAnnotator from "https://cdn.jsdelivr.net/npm/rsml@3.3.0/rsml.esm.js";
 import {
   getState,
   runtime,
@@ -524,7 +524,7 @@ function deactivate(id) {
 
 // Called from the settings drawer after an RSMLAnnotator.add()/.remove()
 // on the shared config instance (see rsmlSettings.js). Replays the exact
-// same call on every already-active row's own annotator — rsml@3.2.0's
+// same call on every already-active row's own annotator — rsml@3.3.0's
 // add/remove update a live instance in place (re-render + CM6 decoration
 // refresh included), so this needs no rebuild and is safe even on a row
 // that's currently focused/mid-edit.
