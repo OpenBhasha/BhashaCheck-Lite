@@ -374,7 +374,6 @@ main > section { flex: 1; min-height: 0; }
    columns aligned line for line. */
 .rsml-host .cm-content { font-size: var(--rsml-font-size) !important; padding-top: 12px !important; line-height: 1.7 !important; }
 .rsml-output {
-  position: relative;
   flex: 1 1 auto;
   height: var(--panes-h, auto);
   min-height: 96px;
@@ -393,20 +392,14 @@ main > section { flex: 1; min-height: 0; }
    render (see its _render() source: it pulls out any existing
    .form-check, wipes the container, puts the toggle back first, the
    content after — so it can't be moved out to somewhere like .pane-label
-   without a duplicate reappearing on the next keystroke). A float here was
-   meant to let .rsml-content's first line share the switch's row instead
-   of sitting on its own line beneath it, but in practice the switch still
-   lands on its own line above the text, pushing it down out of alignment
-   with the editor pane. Lifting the switch out with absolute positioning
-   instead means it never occupies any flow height at all, so
-   .rsml-content always starts flush at .rsml-output's own top padding,
-   matching the editor pane exactly regardless of the library's markup. */
+   without a duplicate reappearing on the next keystroke). Floating it
+   right instead keeps it a child of .rsml-output (the library stays happy)
+   but out of the block flow, so .rsml-content's first line starts at the
+   same y as the editor pane's — text wraps around the switch rather than
+   sitting on a line of its own beneath it. */
 .rsml-output .form-check.form-switch {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  margin: 0 !important;
-  z-index: 1;
+  float: right;
+  margin: 0 0 4px 10px !important;
 }
 .rsml-plain {
   height: 100%;
