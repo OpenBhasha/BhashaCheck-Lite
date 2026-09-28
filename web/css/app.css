@@ -13,6 +13,7 @@
   --radius: 12px;
   --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   --rsml-font-size: 16px; /* set inline by editor.js's A-/A+ toolbar control */
+  --rsml-toolbar-h: 40px; /* rsml preview toolbar row; editor text is offset by the same */
 }
 
 * { box-sizing: border-box; }
@@ -354,27 +355,28 @@ main > section { flex: 1; min-height: 0; }
    its status bar as a sibling after it (see patchStatusAlwaysVisible() in
    editor.js - it's kept visible at all times now, not just on error), 100%
    would overflow a fixed --panes-h. flex:1 1 auto instead lets it fill
-   whatever space the status bar doesn't need. */
-.rsml-host .cm-editor { height: auto; flex: 1 1 auto; min-height: 0; }
+   whatever space the status bar doesn't need.
+   padding-top: the preview always renders rsml's toolbar row (verbatim/
+   normalized switch + settings gear) above its text; this reserves the
+   same --rsml-toolbar-h above the editor's text so both start on the same
+   line. Minus 1px for the top border rsml's CM6 theme gives .cm-editor. */
+.rsml-host .cm-editor { height: auto; flex: 1 1 auto; min-height: 0; padding-top: calc(var(--rsml-toolbar-h) - 1px); }
 .rsml-host .rsml-editor-status { flex: 0 0 auto; }
 .rsml-editor-status .rsml-status-ok { color: var(--ok); font-weight: 600; }
-/* rsml bakes the CM6 editor's font-size in once at mount time (it reads
-   getComputedStyle(textarea).fontSize into a fixed EditorView.theme() value
-   — see the library's own activate() source), so a plain inheritable
+/* rsml bakes the CM6 editor's font-size, top/right padding and line-height
+   in once at mount time (it reads getComputedStyle(textarea) into a fixed
+   EditorView.theme() value — see the library's own _mountCM() source), so
+   .cm-content's own 12px top padding and 1.7 line-height already match
+   .rsml-textarea's without any override here. A plain inheritable
    font-size on an ancestor only takes effect for rows mounted *after* it
-   changes (a reload remounts every row, which is why that alone looked
-   like it worked). !important forces every already-open row's .cm-content
-   to track --rsml-font-size live too, on every A-/A+ click, not just after
-   a reload.
-   CM6's base theme also pads .cm-content by only 4px and leaves line-height
-   at the browser default, vs. this app's own 12px/1.7 on .rsml-textarea,
-   .rsml-plain and .rsml-output - left uncorrected, a segment's transcription
-   text starts and spaces its lines differently than its own preview beside
-   it. Matching both here (same !important, same reason) keeps the two
-   columns aligned line for line. */
-.rsml-host .cm-content { font-size: var(--rsml-font-size) !important; padding-top: 12px !important; line-height: 1.7 !important; }
+   changes though (a reload remounts every row, which is why that alone
+   looked like it worked) - !important forces every already-open row's
+   .cm-content to track --rsml-font-size live too, on every A-/A+ click,
+   not just after a reload. line-height is forced the same way as a live-
+   update safety net, matching .rsml-textarea/.rsml-plain/.rsml-output's
+   shared 1.7. */
+.rsml-host .cm-content { font-size: var(--rsml-font-size) !important; line-height: 1.7 !important; }
 .rsml-output {
-  position: relative;
   flex: 1 1 auto;
   height: var(--panes-h, auto);
   min-height: 96px;
@@ -382,32 +384,21 @@ main > section { flex: 1; min-height: 0; }
   line-height: 1.7;
   overflow-y: auto;
 }
-/* Scoped to .rsml-content (the actual rendered text), not the whole
-   .rsml-output container — that container also holds the Bootstrap
-   verbatim/normalized switch (.form-check.form-switch), whose knob and
-   label size in em units off the inherited font-size; a font-size on
-   .rsml-output itself was visibly growing/shrinking the switch along with
-   the text, which isn't part of "the transcript text got bigger". */
-.rsml-output .rsml-content { font-size: var(--rsml-font-size); }
-/* rsml always re-appends the toggle as .rsml-output's first child on every
-   render (see its _render() source: it pulls out any existing
-   .form-check, wipes the container, puts the toggle back first, the
-   content after — so it can't be moved out to somewhere like .pane-label
-   without a duplicate reappearing on the next keystroke). A float here was
-   meant to let .rsml-content's first line share the switch's row instead
-   of sitting on its own line beneath it, but in practice the switch still
-   lands on its own line above the text, pushing it down out of alignment
-   with the editor pane. Lifting the switch out with absolute positioning
-   instead means it never occupies any flow height at all, so
-   .rsml-content always starts flush at .rsml-output's own top padding,
-   matching the editor pane exactly regardless of the library's markup. */
-.rsml-output .form-check.form-switch {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  margin: 0 !important;
-  z-index: 1;
-}
+/* Scoped to .rsml-content (the actual text rsml renders), not the whole
+   .rsml-output container: .rsml-content carries its own hardcoded
+   line-height: 1.9 from the library's injected core stylesheet (see
+   injectCoreStyles() in rsml.js) and its own font-size off the inherited
+   default, neither of which .rsml-output's own line-height/font-size
+   reaches — an element's own explicit value always wins over an
+   ancestor's. Matching both to .rsml-textarea/.rsml-plain/.cm-content's
+   var(--rsml-font-size)/1.7 keeps wrapped lines the same height on both
+   sides; a font-size on .rsml-output itself was tried before and visibly
+   grew/shrank the verbatim/normalized switch beside it too, which isn't
+   part of "the transcript text got bigger". */
+.rsml-output .rsml-content { font-size: var(--rsml-font-size); line-height: 1.7; }
+/* Pinned so the editor's matching gap above can use the same value. Left
+   alone its height follows the inherited line-height (43.2px here). */
+.rsml-output .rsml-toolbar { height: var(--rsml-toolbar-h); line-height: 1.5; }
 .rsml-plain {
   height: 100%;
   padding: 12px;
