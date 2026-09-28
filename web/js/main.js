@@ -432,7 +432,7 @@ async function rehydrate() {
   }
 
   // Migrate: state.rsmlConfig existed before this app switched to
-  // rsml@3.2.0's native add()/remove(). The old code stored the "isolated
+  // rsml@3.3.0's native add()/remove(). The old code stored the "isolated
   // @-tag" categories as bare names; the library itself always stores them
   // "@"-prefixed, and a bare-named entry saved under the old shape won't
   // compare equal to anything the library's own add()/remove() produce.
