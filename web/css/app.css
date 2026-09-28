@@ -13,6 +13,7 @@
   --radius: 12px;
   --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   --rsml-font-size: 16px; /* set inline by editor.js's A-/A+ toolbar control */
+  --rsml-toolbar-h: 40px; /* rsml preview toolbar row; editor text is offset by the same */
 }
 
 * { box-sizing: border-box; }
@@ -355,16 +356,11 @@ main > section { flex: 1; min-height: 0; }
    editor.js - it's kept visible at all times now, not just on error), 100%
    would overflow a fixed --panes-h. flex:1 1 auto instead lets it fill
    whatever space the status bar doesn't need.
-   padding-top: checked rsml@3.3.1's own source directly (_createToolbar()/
-   .rsml-toolbar in rsml.js) - the preview always renders a toolbar row
-   (verbatim/normalized switch + settings gear, see .rsml-output below)
-   above its text, which the editor side has nothing to match. That row's
-   height is fixed regardless of --rsml-font-size (nothing in it is scoped
-   to that variable): a 24px .form-check-label line plus the switch's own
-   Bootstrap .m-2 margin (8px top + 8px bottom) = 40px, taller than the
-   32px settings button beside it (28px + 2px top/bottom margin). Adding
-   that same 40px here keeps both panes' text starting on the same line. */
-.rsml-host .cm-editor { height: auto; flex: 1 1 auto; min-height: 0; padding-top: 40px; }
+   padding-top: the preview always renders rsml's toolbar row (verbatim/
+   normalized switch + settings gear) above its text; this reserves the
+   same --rsml-toolbar-h above the editor's text so both start on the same
+   line. Minus 1px for the top border rsml's CM6 theme gives .cm-editor. */
+.rsml-host .cm-editor { height: auto; flex: 1 1 auto; min-height: 0; padding-top: calc(var(--rsml-toolbar-h) - 1px); }
 .rsml-host .rsml-editor-status { flex: 0 0 auto; }
 .rsml-editor-status .rsml-status-ok { color: var(--ok); font-weight: 600; }
 /* rsml bakes the CM6 editor's font-size, top/right padding and line-height
@@ -400,6 +396,9 @@ main > section { flex: 1; min-height: 0; }
    grew/shrank the verbatim/normalized switch beside it too, which isn't
    part of "the transcript text got bigger". */
 .rsml-output .rsml-content { font-size: var(--rsml-font-size); line-height: 1.7; }
+/* Pinned so the editor's matching gap above can use the same value. Left
+   alone its height follows the inherited line-height (43.2px here). */
+.rsml-output .rsml-toolbar { height: var(--rsml-toolbar-h); line-height: 1.5; }
 .rsml-plain {
   height: 100%;
   padding: 12px;
