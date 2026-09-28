@@ -170,6 +170,11 @@
           <div id="speaker-roster-panel"></div>
         </section>
         <section>
+          <h4>Insights</h4>
+          <p class="muted small">See how often each RSML tag category appears across this project's segments.</p>
+          <button id="open-insights" class="btn btn-sm btn-outline-secondary"><i class="bi bi-bar-chart"></i> View insights</button>
+        </section>
+        <section>
           <h4>Project</h4>
           <button id="drawer-startover" class="btn btn-sm btn-outline-danger">Start over</button>
           <p class="muted small">Deletes this project (segments, audio, progress) from the browser.</p>
@@ -232,6 +237,15 @@
         <button type="button" class="btn btn-sm btn-outline-secondary flag-modal-cancel">Cancel</button>
         <button type="button" class="btn btn-sm btn-primary flag-modal-save">Save</button>
       </div>
+    </div>
+
+    <div id="insights-backdrop" class="drawer-backdrop" hidden></div>
+    <div id="insights-modal" class="shortcuts-modal insights-modal" hidden role="dialog" aria-modal="true" aria-label="Insights">
+      <div class="shortcuts-modal-head">
+        <strong>Insights</strong>
+        <button id="close-insights" class="icon-btn" aria-label="Close insights"><i class="bi bi-x-lg"></i></button>
+      </div>
+      <div id="insights-modal-body" class="shortcuts-modal-body"></div>
     </div>
 
     <div id="toast-area" class="toast-area"></div>

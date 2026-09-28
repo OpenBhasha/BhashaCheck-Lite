@@ -730,6 +730,54 @@ main > section { flex: 1; min-height: 0; }
   border-top: 1px solid var(--line);
 }
 
+/* Insights popup (drawer -> Insights). Reuses .shortcuts-modal chrome and
+   .rsml-cat/.rsml-map-code/.rsml-map-label from the RSML tags config above
+   for the same collapsible-category, code+label look, just wider (room for
+   the frequency bar) and read-only. */
+.insights-modal { width: 520px; }
+.insight-summary { margin: 0 0 10px; }
+.insight-cat { margin-bottom: 8px; }
+.insight-rows { margin-top: 4px; }
+.insight-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px dotted var(--line);
+  font-size: 13px;
+}
+.insight-row:last-child { border-bottom: none; }
+.insight-row-name {
+  flex: 0 0 auto;
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.insight-bar-track {
+  flex: 1;
+  min-width: 40px;
+  height: 8px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.insight-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+.insight-row-count {
+  flex: 0 0 auto;
+  min-width: 24px;
+  text-align: right;
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--accent-ink);
+}
+
 /* select2 (language selects only - #default-codemix-lang and
    #speaker-modal-lang). The library's own theme font size doesn't pick up
    this app's own scale, especially the dropdown popup, which mounts

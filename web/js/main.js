@@ -9,6 +9,7 @@ import { parseProjectImport } from "./projectJson.js";
 import { mountEditor, unmountEditor } from "./editor.js";
 import { renderRsmlSettings } from "./rsmlSettings.js";
 import { renderCodeMixDefault, renderSpeakerSettings, defaultSpeakerId } from "./speakers.js";
+import { renderInsights } from "./insights.js";
 
 // ---------------------------------------------------------------- state ----
 
@@ -404,12 +405,30 @@ function wireHeader() {
   document.getElementById("open-settings").onclick = open;
   document.getElementById("close-settings").onclick = close;
   backdrop.onclick = close;
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !drawer.hidden) close();
-  });
   document.getElementById("drawer-startover").onclick = () => {
     if (confirm("Delete this project (segments, audio, progress) from the browser? This cannot be undone.")) resetAll();
   };
+
+  const insightsModal = document.getElementById("insights-modal");
+  const insightsBackdrop = document.getElementById("insights-backdrop");
+  const openInsights = () => {
+    renderInsights(document.getElementById("insights-modal-body"), { getState, escapeHtml });
+    insightsModal.hidden = false;
+    insightsBackdrop.hidden = false;
+  };
+  const closeInsights = () => {
+    insightsModal.hidden = true;
+    insightsBackdrop.hidden = true;
+  };
+  document.getElementById("open-insights").onclick = openInsights;
+  document.getElementById("close-insights").onclick = closeInsights;
+  insightsBackdrop.onclick = closeInsights;
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (!insightsModal.hidden) closeInsights();
+    else if (!drawer.hidden) close();
+  });
 }
 
 // -------------------------------------------------------- reset / boot ----
