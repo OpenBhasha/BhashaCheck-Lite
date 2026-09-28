@@ -23,6 +23,15 @@ let viewEnd = 0;
 
 const REGION_COLOR = "rgba(91,60,196,0.12)";
 const REGION_COLOR_VERIFIED = "rgba(31,157,100,0.2)";
+const REGION_COLOR_FLAGGED = "rgba(178,106,0,0.2)";
+
+// A segment that's both flagged and verified reads as flagged - same
+// precedence .seg-row.flagged takes over .seg-row.verified in the editor list.
+function regionColorFor(seg) {
+  if (seg.flagged) return REGION_COLOR_FLAGGED;
+  if (seg.verified) return REGION_COLOR_VERIFIED;
+  return REGION_COLOR;
+}
 
 export function isReady() {
   return !!ws;
@@ -268,7 +277,7 @@ export function setRegions(segments) {
         id: seg.id,
         start: seg.start,
         end: seg.end,
-        color: seg.verified ? REGION_COLOR_VERIFIED : REGION_COLOR,
+        color: regionColorFor(seg),
         drag: true,
         resize: true,
         content: String(i + 1),
@@ -291,8 +300,9 @@ export function updateRegion(id, start, end) {
   }
 }
 
-// Re-color regions in place (verified -> green, else the plain color) without
-// rebuilding them, so a checkbox toggle never disturbs an in-progress drag.
+// Re-color regions in place (flagged -> amber, verified -> green, else the
+// plain color) without rebuilding them, so a checkbox/flag toggle never
+// disturbs an in-progress drag.
 export function syncRegionColors(segments) {
   if (!regions) return;
   suppress = true;
@@ -301,7 +311,7 @@ export function syncRegionColors(segments) {
     regions.getRegions().forEach((r) => {
       const seg = byId.get(r.id);
       if (!seg) return;
-      r.setOptions({ color: seg.verified ? REGION_COLOR_VERIFIED : REGION_COLOR });
+      r.setOptions({ color: regionColorFor(seg) });
     });
   } finally {
     suppress = false;

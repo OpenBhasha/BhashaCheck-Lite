@@ -183,9 +183,11 @@ function updateScrubHead(t) {
   head.style.left = `${Math.min(100, Math.max(0, f * 100))}%`;
 }
 
-// Draw a green band on the scrub strip for every verified segment that falls
-// within the visible time window, so verified work stays visible while
-// scrubbing even when the waveform itself is scrolled past it.
+// Draw a band on the scrub strip for every verified (green) or flagged
+// (amber) segment that falls within the visible time window, so that work
+// stays visible while scrubbing even when the waveform itself is scrolled
+// past it. A segment that's both gets the flagged color - same precedence
+// as .seg-row.flagged winning over .seg-row.verified in the row itself.
 function updateScrubMarks() {
   const scrub = document.getElementById("wf-scrub");
   if (!scrub || !wf.isReady()) return;
@@ -202,12 +204,13 @@ function updateScrubMarks() {
     return;
   }
   const html = getState()
-    .segments.filter((s) => s.verified)
+    .segments.filter((s) => s.verified || s.flagged)
     .map((s) => {
       const l = Math.max(0, Math.min(1, (s.start - start) / span));
       const r = Math.max(0, Math.min(1, (s.end - start) / span));
       if (r <= l) return "";
-      return `<div class="wf-scrub-mark" style="left:${(l * 100).toFixed(3)}%;width:${((r - l) * 100).toFixed(3)}%"></div>`;
+      const cls = s.flagged ? "wf-scrub-mark wf-scrub-mark-flagged" : "wf-scrub-mark";
+      return `<div class="${cls}" style="left:${(l * 100).toFixed(3)}%;width:${((r - l) * 100).toFixed(3)}%"></div>`;
     })
     .join("");
   marks.innerHTML = html;
@@ -856,13 +859,18 @@ function toggleShortcutsModal(forceOpen) {
   backdrop.hidden = !show;
 }
 
-// Updates a row's flag icon/highlight from its current seg.flagged - called
-// right after the flag modal saves, and after a merge folds in the other
-// segment's flag.
+// Updates a row's flag icon/highlight from its current seg.flagged, and
+// re-colors its waveform region + scrub-strip band the same way a verified
+// toggle already does via updateVerifyCount() - called right after the flag
+// modal saves, and after a merge folds in the other segment's flag.
 function applyFlagVisuals(rec) {
   rec.el.classList.toggle("flagged", !!rec.seg.flagged);
   const icon = rec.els.flag.querySelector("i");
   icon.className = "bi " + (rec.seg.flagged ? "bi-flag-fill" : "bi-flag");
+  if (wf.isReady()) {
+    wf.syncRegionColors(getState().segments);
+    updateScrubMarks();
+  }
 }
 
 function openFlagModal(seg, rec) {
