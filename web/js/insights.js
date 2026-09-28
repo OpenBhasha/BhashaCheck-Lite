@@ -17,7 +17,12 @@ import RSMLAnnotator from "https://cdn.jsdelivr.net/npm/rsml@3.3.1/rsml.esm.js";
 
 // Display order: code-mixing and named entities first (the categories
 // called out by name when this feature was requested), then disfluencies,
-// then everything else the RSML tag vocabulary covers.
+// then everything else the RSML tag vocabulary covers. Always listed, even
+// at zero — same "every category shows up, used or not" rule the RSML tags
+// settings panel itself follows (rsmlSettings.js's vocabCategories()) —
+// otherwise a category with no occurrences yet (e.g. a project that hasn't
+// used code-mixing at all) would silently vanish from the popup instead of
+// reading as "0 so far".
 const CATEGORY_ORDER = [
   "languages",
   "entities",
@@ -31,9 +36,13 @@ const CATEGORY_ORDER = [
   "domains",
   "accents",
   "mispronunciations",
-  "unknownTags",
-  "unknownSpans",
 ];
+
+// Diagnostic-only overflow buckets for @tags/spans that don't match any
+// configured name (typos, etc.) — unlike CATEGORY_ORDER above, these stay
+// hidden when empty; showing "Unrecognized @-tags 0" on every clean project
+// would just be noise.
+const DIAGNOSTIC_ORDER = ["unknownTags", "unknownSpans"];
 
 const CATEGORY_LABELS = {
   languages: "Code-mixing",
@@ -169,19 +178,31 @@ function scanText(text, lookups, counts, flatTotals) {
   }
 }
 
+function countAll(counts, flatTotals) {
+  let n = 0;
+  for (const key in counts) for (const code in counts[key]) n += counts[key][code];
+  for (const key in flatTotals) n += flatTotals[key];
+  return n;
+}
+
 // Pure function: { totalSegments, taggedSegments, grandTotal, categories }
 // where categories is an ordered array of
 // { key, label, total, entries: [{ code, label, count }, ...] | null }.
 // `entries` is null for a flat category (mispronunciations) that has no
-// meaningful subtype breakdown.
+// meaningful subtype breakdown. Every category in CATEGORY_ORDER is always
+// present (possibly at total: 0 / entries: []) — see that array's comment.
 export function computeInsights(state) {
   const annotator = makeLookupAnnotator(state.rsmlConfig);
   try {
     const lookups = buildLookups(annotator);
     const counts = {};
     const flatTotals = {};
-    for (const seg of state.segments || []) {
+    const segments = state.segments || [];
+    let taggedSegments = 0;
+    for (const seg of segments) {
+      const before = countAll(counts, flatTotals);
       scanText(seg.rsml || "", lookups, counts, flatTotals);
+      if (countAll(counts, flatTotals) > before) taggedSegments++;
     }
 
     const labelMaps = {
@@ -192,28 +213,30 @@ export function computeInsights(state) {
       accents: state.accents || {},
     };
 
+    const toEntries = (bucket, map) =>
+      Object.entries(bucket || {})
+        .map(([code, count]) => ({ code, label: (map && map[code]) || null, count }))
+        .sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
+
     const categories = [];
     for (const key of CATEGORY_ORDER) {
       if (key === "mispronunciations") {
-        if (flatTotals.mispronunciations) {
-          categories.push({ key, label: CATEGORY_LABELS[key], total: flatTotals.mispronunciations, entries: null });
-        }
+        categories.push({ key, label: CATEGORY_LABELS[key], total: flatTotals.mispronunciations || 0, entries: null });
         continue;
       }
-      const bucket = counts[key];
-      if (!bucket || !Object.keys(bucket).length) continue;
-      const map = labelMaps[key];
-      const entries = Object.entries(bucket)
-        .map(([code, count]) => ({ code, label: (map && map[code]) || null, count }))
-        .sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
+      const entries = toEntries(counts[key], labelMaps[key]);
       const total = entries.reduce((sum, e) => sum + e.count, 0);
       categories.push({ key, label: CATEGORY_LABELS[key] || key, total, entries });
     }
+    // Diagnostic buckets only surface when there's actually something in them.
+    for (const key of DIAGNOSTIC_ORDER) {
+      if (!counts[key] || !Object.keys(counts[key]).length) continue;
+      const entries = toEntries(counts[key], null);
+      const total = entries.reduce((sum, e) => sum + e.count, 0);
+      categories.push({ key, label: CATEGORY_LABELS[key], total, entries });
+    }
 
     const grandTotal = categories.reduce((sum, c) => sum + c.total, 0);
-    const segments = state.segments || [];
-    const taggedSegments = segments.filter((s) => /\S/.test(s.rsml || "")).length;
-
     return { totalSegments: segments.length, taggedSegments, grandTotal, categories };
   } finally {
     annotator.destroy();
@@ -222,10 +245,21 @@ export function computeInsights(state) {
   }
 }
 
+function emptyRow() {
+  const p = document.createElement("p");
+  p.className = "rsml-cat-empty muted small";
+  p.textContent = "None tagged yet.";
+  return p;
+}
+
 function buildCategoryBlock(cat, escapeHtml) {
   const det = document.createElement("details");
   det.className = "rsml-cat insight-cat";
-  det.open = true;
+  // Populated categories open automatically (this is a report, not an
+  // editor — worth seeing at a glance); an unused one stays collapsed so a
+  // fresh project's popup isn't a wall of "None tagged yet." rows, while
+  // still being listed (with its real 0) rather than omitted outright.
+  det.open = cat.total > 0;
 
   const summary = document.createElement("summary");
   const countEl = document.createElement("span");
@@ -237,14 +271,20 @@ function buildCategoryBlock(cat, escapeHtml) {
   const body = document.createElement("div");
   body.className = "insight-rows";
 
-  if (!cat.entries) {
-    const row = document.createElement("div");
-    row.className = "insight-row";
-    row.innerHTML =
-      `<span class="insight-row-name">Occurrences</span>` +
-      `<span class="insight-bar-track"><span class="insight-bar-fill" style="width:100%"></span></span>` +
-      `<span class="insight-row-count">${cat.total}</span>`;
-    body.appendChild(row);
+  if (cat.entries === null) {
+    if (cat.total) {
+      const row = document.createElement("div");
+      row.className = "insight-row";
+      row.innerHTML =
+        `<span class="insight-row-name">Occurrences</span>` +
+        `<span class="insight-bar-track"><span class="insight-bar-fill" style="width:100%"></span></span>` +
+        `<span class="insight-row-count">${cat.total}</span>`;
+      body.appendChild(row);
+    } else {
+      body.appendChild(emptyRow());
+    }
+  } else if (!cat.entries.length) {
+    body.appendChild(emptyRow());
   } else {
     const max = cat.entries[0].count;
     for (const e of cat.entries) {
