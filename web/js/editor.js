@@ -8,7 +8,7 @@
 // (IntersectionObserver + a backstop sweep) and torn down once they scroll
 // far away. A collapsed row is just a bit of text.
 
-import RSMLAnnotator from "https://cdn.jsdelivr.net/npm/rsml@3.3.2/rsml.esm.js";
+import RSMLAnnotator from "https://cdn.jsdelivr.net/npm/rsml@3.3.3/rsml.esm.js";
 import {
   getState,
   runtime,
