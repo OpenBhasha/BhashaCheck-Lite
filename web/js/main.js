@@ -3,6 +3,7 @@
 // on load. editor.js imports the helpers exported here.
 
 import * as storage from "./storage.js";
+import { loadPrefs, savePrefs } from "./prefs.js";
 import * as wav from "./wav.js";
 import { parseSRT } from "./srt.js";
 import { parseProjectImport } from "./projectJson.js";
@@ -12,6 +13,19 @@ import { renderCodeMixDefault, renderSpeakerSettings, defaultSpeakerId } from ".
 import { renderInsights } from "./insights.js";
 
 // ---------------------------------------------------------------- state ----
+
+// Hardcoded fallback for whichever of these localStorage has never saved
+// (first run, or an older save from before a given field existed).
+// rsmlRenderMode/rsmlHideDisfluencies drive the RSML preview's Normalized/
+// Verbatim and "hide disfluencies" switches in the editor toolbar - see
+// editor.js's wireRsmlDisplay()/applyGlobalRsmlDisplay().
+const UI_PREF_DEFAULTS = {
+  zoom: 40,
+  speed: 1,
+  fontSize: 16,
+  rsmlRenderMode: "normalized", // or "verbatim"
+  rsmlHideDisfluencies: true,
+};
 
 const newState = () => ({
   version: 1,
@@ -26,20 +40,12 @@ const newState = () => ({
   accents: {}, // { id: name } - app-only vocabulary for $id[...](...) accent tags; rsml itself has
   // no accents category (no add()/remove() support, unlike dialects/domains) so this is
   // maintained here and fed into the `$` autocomplete by editor.js's patchCompletions().
-  ui: {
-    screen: "upload",
-    zoom: 40,
-    speed: 1,
-    fontSize: 16,
-    // The RSML preview's own render-mode toggle (Normalized/Verbatim) and
-    // "hide disfluencies" checkbox are per-annotator-instance state inside
-    // the rsml library itself; editor.js patches them to read/write these
-    // two fields instead so every segment's preview shares one setting
-    // rather than each defaulting independently. See editor.js's
-    // patchGlobalDisplaySettings().
-    rsmlRenderMode: "normalized", // or "verbatim"
-    rsmlHideDisfluencies: true,
-  },
+  // `screen` is the one field here that's genuinely per-project (which
+  // screen this project was left on); every other field is a cross-project
+  // display preference persisted separately in localStorage (see
+  // prefs.js) - seeded from there up front so a brand-new project opens
+  // with this person's actual current preferences, not hardcoded defaults.
+  ui: { screen: "upload", ...UI_PREF_DEFAULTS, ...loadPrefs() },
   // null until the user customizes something in Settings -> RSML tags; a
   // straight snapshot of an RSMLAnnotator's own .opts otherwise (see
   // rsmlSettings.js). The library's own built-in defaults apply until then
@@ -77,6 +83,17 @@ export function scheduleSave() {
 export async function saveNow() {
   clearTimeout(saveTimer);
   state.updatedAt = Date.now();
+  // Piggybacks on every debounced save rather than each individual control's
+  // own handler - cheap even when unrelated (a segment edit, say) triggered
+  // this save, and guarantees the two copies (this project's IndexedDB
+  // record and the cross-project localStorage prefs) never drift apart.
+  savePrefs({
+    zoom: state.ui.zoom,
+    speed: state.ui.speed,
+    fontSize: state.ui.fontSize,
+    rsmlRenderMode: state.ui.rsmlRenderMode,
+    rsmlHideDisfluencies: state.ui.rsmlHideDisfluencies,
+  });
   try {
     await storage.saveState(state);
     const b = savedBadge();
@@ -456,6 +473,15 @@ async function rehydrate() {
   if (!saved) return false;
   state = Object.assign(newState(), saved);
   state.ui = Object.assign(newState().ui, saved.ui || {});
+  // Re-applied on top: zoom/speed/fontSize/rsmlRenderMode/
+  // rsmlHideDisfluencies are cross-project preferences now (see prefs.js),
+  // so today's actual preference should win over whatever this specific
+  // project's own blob happened to have saved for them last time it was
+  // open - otherwise reopening an older project would look like it
+  // "reverted" a font-size or switch change made anywhere else since.
+  // `screen` (this project's own left-off screen, from saved.ui above) is
+  // untouched - loadPrefs() never returns that key.
+  Object.assign(state.ui, loadPrefs());
 
   for (const seg of state.segments || []) {
     if (seg.verified == null) seg.verified = false;
