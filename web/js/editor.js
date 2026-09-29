@@ -686,21 +686,25 @@ function applyGlobalRsmlDisplay(annotator) {
 // row's annotator; applyGlobalRsmlDisplay() above covers rows activated
 // later (scrolled into view after this point).
 function wireRsmlDisplay() {
-  const btn = document.getElementById("rsml-mode-toggle");
-  const label = document.getElementById("rsml-mode-toggle-label");
+  const modeInput = document.getElementById("rsml-mode-toggle");
+  const modeLabel = document.getElementById("rsml-mode-toggle-label");
   const hideCb = document.getElementById("rsml-hide-disfluencies-toggle");
-  if (!btn || !hideCb) return;
+  if (!modeInput || !hideCb) return;
 
   const refresh = () => {
     const ui = getState().ui;
-    if (label) label.textContent = ui.rsmlRenderMode === "normalized" ? "Normalized" : "Verbatim";
+    const normalized = ui.rsmlRenderMode === "normalized";
+    modeInput.checked = normalized;
+    if (modeLabel) modeLabel.textContent = normalized ? "Normalized" : "Verbatim";
     hideCb.checked = ui.rsmlHideDisfluencies;
   };
   refresh();
 
-  btn.onclick = () => {
+  // Mirrors rsml's own toggle semantics exactly (see its _createRenderToggle
+  // source): checked -> normalized, unchecked -> verbatim.
+  modeInput.onchange = () => {
     const ui = getState().ui;
-    ui.rsmlRenderMode = ui.rsmlRenderMode === "normalized" ? "verbatim" : "normalized";
+    ui.rsmlRenderMode = modeInput.checked ? "normalized" : "verbatim";
     refresh();
     scheduleSave();
     for (const rec of rows.values()) {

@@ -81,13 +81,14 @@
             <span><span id="verify-count">0 / 0</span> verified</span>
           </label>
           <span class="flex-spacer"></span>
-          <button type="button" id="rsml-mode-toggle" class="btn btn-sm btn-outline-secondary" title="Toggle the RSML preview between normalized and verbatim text, for every segment">
-            <i class="bi bi-arrow-left-right"></i> <span id="rsml-mode-toggle-label">Normalized</span>
-          </button>
-          <label class="verify-toggle" title="Hide disfluency spans (fillers, repetitions, etc.) in the RSML preview, for every segment">
-            <input type="checkbox" id="rsml-hide-disfluencies-toggle" checked />
-            <span>Hide disfluencies</span>
-          </label>
+          <div class="form-check form-switch rsml-display-switch" title="Toggle the RSML preview between normalized and verbatim text, for every segment">
+            <input class="form-check-input" type="checkbox" role="switch" id="rsml-mode-toggle" checked />
+            <label class="form-check-label" for="rsml-mode-toggle" id="rsml-mode-toggle-label">Normalized</label>
+          </div>
+          <div class="form-check form-switch rsml-display-switch" title="Hide disfluency spans (fillers, repetitions, etc.) in the RSML preview, for every segment">
+            <input class="form-check-input" type="checkbox" role="switch" id="rsml-hide-disfluencies-toggle" checked />
+            <label class="form-check-label" for="rsml-hide-disfluencies-toggle">Hide disfluencies</label>
+          </div>
           <div class="font-size-ctl" title="Segment text size">
             <button type="button" id="font-size-dec" aria-label="Decrease text size">A-</button>
             <button type="button" id="font-size-reset" aria-label="Reset text size to default">A</button>

@@ -144,6 +144,28 @@ main > section { flex: 1; min-height: 0; }
   cursor: pointer;
 }
 .verify-toggle input { width: 15px; height: 15px; }
+/* Bootstrap's .form-check is a block with padding-left offset for the
+   input, sized for a stacked list of options - flexed and re-centered here
+   to sit inline with the toolbar's other controls, same look rsml's own
+   per-segment switch had before it moved here. */
+.rsml-display-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding-left: 0;
+  min-height: 0;
+}
+.rsml-display-switch .form-check-input { margin: 0; cursor: pointer; }
+.rsml-display-switch .form-check-label {
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+/* "Normalized" / "Verbatim" swap in and out of the same label on every
+   toggle - fixed to the wider word's width so that swap can't nudge the
+   switch itself, or anything to its right in the toolbar row, sideways. */
+#rsml-mode-toggle-label { display: inline-block; min-width: 6.5em; }
 .font-size-ctl { display: flex; align-items: center; gap: 1px; }
 .font-size-ctl button {
   border: 1px solid var(--line);
