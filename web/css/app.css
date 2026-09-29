@@ -406,6 +406,19 @@ main > section { flex: 1; min-height: 0; }
 /* Scoped to .rsml-content (the actual rendered text), not the whole
    .rsml-output container. */
 .rsml-output .rsml-content { font-size: var(--rsml-font-size); }
+/* Gap in rsml's own core CSS: its _transformRSML() wraps the single
+   whitespace character right after a hidden-when-disfluencies-hidden
+   token (a disfluency span or an isolated hesitation/@other tag) in its
+   own <span class="rsml-trailing-ws">, apparently meant to disappear
+   alongside it — the library ships the JS to emit that wrapper but never
+   added a rule to actually hide it. Left alone, hiding "@filler-start
+   मतलब @filler-end" (say) removes the word but leaves both its own
+   wrapper's edges AND this trailing space, reading as a double space
+   where the word used to be. Added here since rsml's own injected
+   stylesheet has no such rule to override — check again next time the
+   `rsml` version bumps in case it's fixed upstream and this becomes
+   redundant. */
+.rsml-content.rsml-hide-disfluencies .rsml-trailing-ws { display: none; }
 /* rsml's own per-row toolbar (Normalized/Verbatim switch + "hide
    disfluencies" gear popup, injected as .rsml-output's first child) is
    hidden outright — the editor toolbar's own controls
