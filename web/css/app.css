@@ -382,25 +382,17 @@ main > section { flex: 1; min-height: 0; }
   overflow-y: auto;
 }
 /* Scoped to .rsml-content (the actual rendered text), not the whole
-   .rsml-output container — that container also holds the Bootstrap
-   verbatim/normalized switch (.form-check.form-switch), whose knob and
-   label size in em units off the inherited font-size; a font-size on
-   .rsml-output itself was visibly growing/shrinking the switch along with
-   the text, which isn't part of "the transcript text got bigger". */
+   .rsml-output container. */
 .rsml-output .rsml-content { font-size: var(--rsml-font-size); }
-/* rsml always re-appends the toggle as .rsml-output's first child on every
-   render (see its _render() source: it pulls out any existing
-   .form-check, wipes the container, puts the toggle back first, the
-   content after — so it can't be moved out to somewhere like .pane-label
-   without a duplicate reappearing on the next keystroke). Floating it
-   right instead keeps it a child of .rsml-output (the library stays happy)
-   but out of the block flow, so .rsml-content's first line starts at the
-   same y as the editor pane's — text wraps around the switch rather than
-   sitting on a line of its own beneath it. */
-.rsml-output .form-check.form-switch {
-  float: right;
-  margin: 0 0 4px 10px !important;
-}
+/* rsml's own per-row toolbar (Normalized/Verbatim switch + "hide
+   disfluencies" gear popup, injected as .rsml-output's first child) is
+   hidden outright — the editor toolbar's own controls
+   (#rsml-mode-toggle / #rsml-hide-disfluencies-toggle, wired in editor.js's
+   wireRsmlDisplay()) apply to every segment at once instead of each one
+   defaulting/toggling independently. !important: rsml injects its own
+   stylesheet (display:flex on .rsml-toolbar) after this one loads, at equal
+   specificity. */
+.rsml-output .rsml-toolbar { display: none !important; }
 .rsml-plain {
   height: 100%;
   padding: 12px;

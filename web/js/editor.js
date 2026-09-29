@@ -489,7 +489,7 @@ function activate(id, { focus }) {
     rec.annotator = new RSMLAnnotator({ textarea: ta, output: rec.output, ...(getState().rsmlConfig || {}) });
     patchCompletions(rec.annotator);
     patchStatusAlwaysVisible(rec.annotator);
-    patchGlobalDisplaySettings(rec.annotator);
+    applyGlobalRsmlDisplay(rec.annotator);
   } catch (err) {
     console.warn("RSMLAnnotator failed, plain textarea fallback", err);
     rec.annotator = null;
@@ -661,73 +661,63 @@ function patchStatusAlwaysVisible(annotator) {
   annotator._updateStatus();
 }
 
-// Pushes an annotator's current renderMode/hideDisfluencies into its own
-// toolbar controls — needed both right after construction (the toolbar was
-// just built from rsml's own hardcoded defaults, before this patch could
-// override them) and whenever another row's toggle changes this one's
-// settings out from under it.
-function syncRowToolbarControls(annotator) {
-  const toggle = annotator.output.querySelector(".rsml-toolbar .form-check-input");
-  if (toggle) {
-    const checked = annotator.renderMode === "normalized";
-    toggle.checked = checked;
-    const label = annotator.output.querySelector(".rsml-toolbar .form-check-label");
-    if (label) label.textContent = checked ? "Normalized" : "Verbatim";
-  }
-  const checkbox = annotator.output.querySelector('.rsml-toolbar [data-setting="hideDisfluencies"]');
-  if (checkbox) checkbox.checked = annotator._displaySettings.hideDisfluencies;
-}
-
-// rsml's renderMode/_displaySettings.hideDisfluencies are plain per-instance
-// properties — each segment's annotator otherwise defaults and toggles
-// independently, with no shared concept at all. This makes both settings
-// act global instead: applies the app-wide values (state.ui.rsmlRenderMode /
-// rsmlHideDisfluencies) to a freshly built row immediately, then shadows
-// _applyRenderMode/_applyDisplaySettings — the two methods rsml's own
-// toolbar switch/checkbox call on every change (see rsml.js's
-// _createRenderToggle/_createSettingsControl) — the same "shadow a
-// prototype method via an instance property" technique patchCompletions()/
-// patchStatusAlwaysVisible() above already use, needed here because those
-// controls are wired up inside the library's own private closures with no
-// public hook to extend. Each shadow persists the new value to state.ui and
-// replays it onto every *other* currently-active row via the unpatched
-// RSMLAnnotator.prototype method directly (not the row's own possibly-
-// patched copy) — calling a row's own shadowed method there would re-enter
-// this same broadcast for every other row in turn.
-function patchGlobalDisplaySettings(annotator) {
-  if (!annotator || annotator.__displaySettingsPatched) return;
-  annotator.__displaySettingsPatched = true;
-
+// rsml's own per-row toolbar (the Normalized/Verbatim switch + "hide
+// disfluencies" gear popup it injects into every preview pane) is hidden
+// entirely via CSS (.rsml-output .rsml-toolbar in app.css) — the editor
+// toolbar's own controls (wireRsmlDisplay() below) are the only way to
+// change these now, applying to every segment at once via state.ui rather
+// than each row's annotator defaulting/toggling independently. This just
+// seeds a freshly constructed row's annotator with the current app-wide
+// values, since rsml's constructor always starts at its own hardcoded
+// defaults ("normalized", hide-disfluencies on) regardless.
+function applyGlobalRsmlDisplay(annotator) {
+  if (!annotator) return;
   const ui = getState().ui;
   annotator.renderMode = ui.rsmlRenderMode;
   annotator._displaySettings.hideDisfluencies = ui.rsmlHideDisfluencies;
-  syncRowToolbarControls(annotator);
-  RSMLAnnotator.prototype._applyRenderMode.call(annotator, annotator.output);
-  RSMLAnnotator.prototype._applyDisplaySettings.call(annotator, annotator.output);
+  annotator._applyRenderMode(annotator.output);
+  annotator._applyDisplaySettings(annotator.output);
+}
 
-  annotator._applyRenderMode = (root) => {
-    RSMLAnnotator.prototype._applyRenderMode.call(annotator, root);
-    getState().ui.rsmlRenderMode = annotator.renderMode;
+// Wires the editor toolbar's Normalized/Verbatim button and "hide
+// disfluencies" checkbox (next to the A-/A/A+ font-size controls) — the
+// single, global replacement for rsml's own per-segment toolbar. Each
+// control updates state.ui, then applies straight to every currently active
+// row's annotator; applyGlobalRsmlDisplay() above covers rows activated
+// later (scrolled into view after this point).
+function wireRsmlDisplay() {
+  const btn = document.getElementById("rsml-mode-toggle");
+  const label = document.getElementById("rsml-mode-toggle-label");
+  const hideCb = document.getElementById("rsml-hide-disfluencies-toggle");
+  if (!btn || !hideCb) return;
+
+  const refresh = () => {
+    const ui = getState().ui;
+    if (label) label.textContent = ui.rsmlRenderMode === "normalized" ? "Normalized" : "Verbatim";
+    hideCb.checked = ui.rsmlHideDisfluencies;
+  };
+  refresh();
+
+  btn.onclick = () => {
+    const ui = getState().ui;
+    ui.rsmlRenderMode = ui.rsmlRenderMode === "normalized" ? "verbatim" : "normalized";
+    refresh();
     scheduleSave();
-    for (const other of rows.values()) {
-      const a = other.annotator;
-      if (!a || a === annotator || a.renderMode === annotator.renderMode) continue;
-      a.renderMode = annotator.renderMode;
-      syncRowToolbarControls(a);
-      RSMLAnnotator.prototype._applyRenderMode.call(a, a.output);
+    for (const rec of rows.values()) {
+      if (!rec.annotator) continue;
+      rec.annotator.renderMode = ui.rsmlRenderMode;
+      rec.annotator._applyRenderMode(rec.annotator.output);
     }
   };
 
-  annotator._applyDisplaySettings = (root) => {
-    RSMLAnnotator.prototype._applyDisplaySettings.call(annotator, root);
-    getState().ui.rsmlHideDisfluencies = annotator._displaySettings.hideDisfluencies;
+  hideCb.onchange = () => {
+    const ui = getState().ui;
+    ui.rsmlHideDisfluencies = hideCb.checked;
     scheduleSave();
-    for (const other of rows.values()) {
-      const a = other.annotator;
-      if (!a || a === annotator || a._displaySettings.hideDisfluencies === annotator._displaySettings.hideDisfluencies) continue;
-      a._displaySettings.hideDisfluencies = annotator._displaySettings.hideDisfluencies;
-      syncRowToolbarControls(a);
-      RSMLAnnotator.prototype._applyDisplaySettings.call(a, a.output);
+    for (const rec of rows.values()) {
+      if (!rec.annotator) continue;
+      rec.annotator._displaySettings.hideDisfluencies = ui.rsmlHideDisfluencies;
+      rec.annotator._applyDisplaySettings(rec.annotator.output);
     }
   };
 }
@@ -1240,6 +1230,7 @@ function wireChrome() {
   if (all) all.onchange = () => setAllVerified(all.checked);
 
   wireFontSize();
+  wireRsmlDisplay();
 
   bind("export-srt-btn", () => {
     const s = getState();
