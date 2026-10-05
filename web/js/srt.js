@@ -1,24 +1,32 @@
-// SRT import/export. The transcript body is the raw RSML markup, exported as-is.
+// Transcript file import/export: RSML, and plain SRT.
 //
-// Line 3 of every cue is a machine-readable metadata line (every speaker the
-// segment involves, verified, flagged, note) so the format round-trips
-// losslessly through export -> import, while staying backward-compatible
-// with plain third-party SRT (or SRT exported by this app before this
-// metadata line existed) that has no such line - see META_LINE_RE below.
+// RSML (.rsml, Rich Speech Markup Language) is this app's own format: an SRT
+// with extras. Every cue is still index / timestamps / text, so anything that
+// reads SRT still finds the transcript in it, plus two additions only this app
+// reads:
+//   - line 3 of every cue is a metadata line holding that segment's own facts
+//     - which speaker, verified, flagged, note (see META_LINE_RE below);
+//   - the file ends with a small INI-style config block - NOT a cue: no
+//     index, no timestamps - carrying the project's settings and complete tag
+//     set, with a code -> description legend for every coded tag (entities,
+//     languages, dialects, domains, accents), so whoever opens the file can
+//     decode the RSML in the cues without this app. It also lists the whole
+//     speaker roster by its stable ids, so `primary=` here and any
+//     &sN-start/&sN-end typed inside the text keep pointing at the right
+//     speaker on re-import (see speakers.js's header comment for the ids, and
+//     main.js's upsertSpeaker()). See configText.js for the block's format
+//     and its parser.
 //
-// "Every speaker the segment involves" is more than just seg.speaker: an
-// annotator can also hand-type &sN-start/&sN-end inside the RSML text
-// itself for a minority/interjecting speaker (N is the same stable
-// speakers[].id as everywhere else in this app - see speakers.js's header
-// comment). Those ids live only inside the free-form rsml text, so without
-// scanning for them an SRT export would silently drop that speaker's
-// gender/language entirely, and - worse - a re-import would invent a FRESH
-// id for seg.speaker (matched by gender+language) while the &sN tokens
-// already baked into the imported text keep pointing at the old id,
-// silently breaking the reference. Encoding every referenced id explicitly
-// (not just seg.speaker) and reusing those exact ids on import (not a
-// gender/language match) fixes both problems at once - see
-// referencedSpeakerIds() and main.js's importSrt().
+// SRT (.srt) is the plain, standard form: index, timestamps, text, nothing
+// else. The text is the raw RSML markup, as-is. It is lossy by nature - no
+// speaker, flags, notes or config survive it.
+//
+// One parser, parseSRT(), reads both: a plain SRT is just an RSML file with
+// neither extra. Files from earlier builds of this app (a metadata line that
+// still carries a per-cue `speakers=` list, or the config written as one extra
+// last cue) still import - see META_LINE_RE and LEGACY_CONFIG_CUE_RE.
+
+import { configToText, splitOffConfig, textToConfig } from "./configText.js";
 
 function pad(n, w = 2) {
   return String(Math.floor(n)).padStart(w, "0");
@@ -44,16 +52,18 @@ function srtToSeconds(str) {
   );
 }
 
-// Line 3 format: fixed key order, pipe-delimited, `note=` last and
+// Metadata line format: fixed key order, pipe-delimited, `note=` last and
 // unsplit (takes the rest of the line) so free-text notes never need to
 // escape `|` - only a literal backslash and embedded newline are escaped,
-// via escapeNote()/unescapeNote() below. `speakers=` is a comma-separated
-// list of every referenced speaker as `id:gender:lang` (lang empty when
-// not set); `primary=` says which one (if any) is this segment's own
+// via escapeNote()/unescapeNote() below. `primary=` is this segment's own
 // seg.speaker, empty when none.
-//   primary=<id-or-empty>|speakers=<id:gender:lang,...>|verified=<0|1>|flagged=<0|1>|note=<escaped text>
-const META_LINE_RE = /^primary=[^|]*\|speakers=[^|]*\|verified=[01]\|flagged=[01]\|note=/;
-const META_LINE_MATCH_RE = /^primary=([^|]*)\|speakers=([^|]*)\|verified=([01])\|flagged=([01])\|note=(.*)$/s;
+//   primary=<id-or-empty>|verified=<0|1>|flagged=<0|1>|note=<escaped text>
+// Older files also had a `speakers=<id:gender:lang,...>` field between
+// `primary=` and `verified=` (every speaker the cue involves, written before
+// the config block existed to carry the roster once). It is never written any
+// more, but stays an optional field here so those files still read back.
+const META_LINE_RE = /^primary=[^|]*(?:\|speakers=[^|]*)?\|verified=[01]\|flagged=[01]\|note=/;
+const META_LINE_MATCH_RE = /^primary=([^|]*)(?:\|speakers=([^|]*))?\|verified=([01])\|flagged=([01])\|note=(.*)$/s;
 
 function escapeNote(s) {
   return String(s || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n");
@@ -62,22 +72,11 @@ function unescapeNote(s) {
   return s.replace(/\\\\|\\n/g, (m) => (m === "\\n" ? "\n" : "\\"));
 }
 
-// Every &sN-start/&sN-end id a segment's RSML text references, in the
-// order first seen (a Set preserves insertion order; dedup matters since
-// a speaker's turn is wrapped by two tokens sharing the same N).
-function referencedSpeakerIds(rsml) {
-  const ids = new Set();
-  const re = /&s(\d+)-(?:start|end)/g;
-  let m;
-  while ((m = re.exec(rsml || ""))) ids.add(parseInt(m[1], 10));
-  return ids;
-}
-
 function decodeMetaLine(line) {
   const m = line.match(META_LINE_MATCH_RE);
   if (!m) return null;
   const [, primaryRaw, speakersRaw, verified, flagged, rawNote] = m;
-  const speakers = speakersRaw
+  const speakers = speakersRaw // undefined (no `speakers=` field) or "" -> none; the config block carries the roster instead
     ? speakersRaw.split(",").map((entry) => {
         const [idRaw, gender, lang] = entry.split(":");
         return { id: parseInt(idRaw, 10), gender: gender || "unspecified", nativeLanguage: lang || null };
@@ -92,8 +91,24 @@ function decodeMetaLine(line) {
   };
 }
 
+// An earlier build of this export wrote the config as one extra cue
+// (`[bhashacheck-config v1]` as its first text line). Files from that build
+// are still skipped on import rather than showing up as a bogus last segment;
+// their config is not read back.
+const LEGACY_CONFIG_CUE_RE = /^\[bhashacheck-config v\d+\]/;
+
+// -> { cues, config }. `cues` are the transcript cues; the config block at
+// the end of an RSML file (see configText.js) is never one of them - it comes
+// back as `config` instead (exportConfig.js's shape, only the parts the file
+// actually states), or null when the file has no config block or nothing in it
+// was recognizable. A cue's `meta` is null when it has no metadata line (plain
+// SRT).
 export function parseSRT(text) {
-  const blocks = text.replace(/\r\n/g, "\n").split(/\n\s*\n/);
+  // The config block is cut off first, so nothing in it (a description that
+  // happens to contain "-->", say) can ever be read as part of a cue.
+  const { rest, configText } = splitOffConfig(text.replace(/\r\n/g, "\n"));
+  const config = configText && textToConfig(configText);
+  const blocks = rest.split(/\n\s*\n/);
   const out = [];
   for (const block of blocks) {
     const lines = block.split("\n").filter((l) => l.trim() !== "");
@@ -113,48 +128,60 @@ export function parseSRT(text) {
       bodyStart += 1;
     }
     const content = lines.slice(bodyStart).join("\n").trim();
+    if (LEGACY_CONFIG_CUE_RE.test(content)) continue; // see LEGACY_CONFIG_CUE_RE
     out.push({ start, end, text: content, meta });
   }
-  return out;
+  return { cues: out, config: config || null };
 }
 
-function speakerEntry(id, speakers) {
-  const sp = (speakers || []).find((s) => s.id === id);
-  return `${id}:${sp ? sp.gender || "" : ""}:${sp ? sp.nativeLanguage || "" : ""}`;
+function sortedRows(segments) {
+  return [...segments].sort((a, b) => a.start - b.start);
 }
 
-function metaLine(seg, speakers) {
-  const ids = [];
-  if (seg.speaker != null) ids.push(seg.speaker);
-  for (const id of referencedSpeakerIds(seg.rsml)) {
-    if (!ids.includes(id)) ids.push(id);
-  }
-  const speakersField = ids.map((id) => speakerEntry(id, speakers)).join(",");
-  const primaryField = seg.speaker != null ? String(seg.speaker) : "";
-  return `primary=${primaryField}|speakers=${speakersField}|verified=${seg.verified ? "1" : "0"}|flagged=${seg.flagged ? "1" : "0"}|note=${escapeNote(seg.note)}`;
+// The first two lines of every cue, in both formats.
+function cueHead(seg, idx) {
+  return [String(idx + 1), `${secondsToSrt(seg.start)} --> ${secondsToSrt(seg.end)}`];
 }
 
-export function buildSRT(segments, speakers) {
-  const rows = [...segments].sort((a, b) => a.start - b.start);
+function metaLine(seg) {
+  const primary = seg.speaker != null ? String(seg.speaker) : "";
+  return `primary=${primary}|verified=${seg.verified ? "1" : "0"}|flagged=${seg.flagged ? "1" : "0"}|note=${escapeNote(seg.note)}`;
+}
+
+// RSML: the cues plus each one's metadata line, then the config block (see
+// exportConfig.js's buildExportConfig()). The block follows the last cue - each
+// cue already ends with a blank line - and is plain text, so it is not a cue.
+export function buildRSML(segments, config) {
   const lines = [];
-  rows.forEach((seg, idx) => {
-    lines.push(String(idx + 1));
-    lines.push(`${secondsToSrt(seg.start)} --> ${secondsToSrt(seg.end)}`);
-    lines.push(metaLine(seg, speakers));
-    lines.push((seg.rsml || "").trim());
-    lines.push("");
-  });
+  sortedRows(segments).forEach((seg, idx) => lines.push(...cueHead(seg, idx), metaLine(seg), (seg.rsml || "").trim(), ""));
+  lines.push(...configToText(config));
   return lines.join("\n").trim() + "\n";
 }
 
-export function downloadSRT(filename, srtText) {
-  const blob = new Blob([srtText], { type: "application/x-subrip;charset=utf-8" });
+// Plain, standard SRT: index, timestamps, text.
+export function buildSRT(segments) {
+  const lines = [];
+  sortedRows(segments).forEach((seg, idx) => lines.push(...cueHead(seg, idx), (seg.rsml || "").trim(), ""));
+  return lines.join("\n").trim() + "\n";
+}
+
+function download(filename, extension, text, mime) {
+  const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = filename.replace(/\.[^.]+$/, "") + ".srt";
+  a.download = filename.replace(/\.[^.]+$/, "") + extension;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// No registered media type for .rsml: it is plain UTF-8 text.
+export function downloadRSML(filename, rsmlText) {
+  download(filename, ".rsml", rsmlText, "text/plain;charset=utf-8");
+}
+
+export function downloadSRT(filename, srtText) {
+  download(filename, ".srt", srtText, "application/x-subrip;charset=utf-8");
 }

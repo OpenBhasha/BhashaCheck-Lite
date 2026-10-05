@@ -1,12 +1,11 @@
 // App shell: state, persistence, screen routing, the upload/setup screens
-// (upload audio, then import an SRT or run client-side VAD), and rehydration
+// (upload audio, then import an RSML/SRT file or run client-side VAD), and rehydration
 // on load. editor.js imports the helpers exported here.
 
 import * as storage from "./storage.js";
 import { loadPrefs, savePrefs } from "./prefs.js";
 import * as wav from "./wav.js";
 import { parseSRT } from "./srt.js";
-import { parseProjectImport } from "./projectJson.js";
 import { mountEditor, unmountEditor } from "./editor.js";
 import { renderRsmlSettings } from "./rsmlSettings.js";
 import { renderCodeMixDefault, renderSpeakerSettings, defaultSpeakerId } from "./speakers.js";
@@ -206,8 +205,8 @@ async function handleAudioFile(file) {
   showScreen("setup");
 }
 
-// Recreates a roster entry at the exact id an imported SRT's metadata line
-// names (unlike matching by gender/language, this keeps any &sN-start/
+// Recreates a roster entry at the exact id an imported file's metadata line
+// or config block names (unlike matching by gender/language, this keeps any &sN-start/
 // &sN-end tokens already baked into the imported rsml text pointing at the
 // right speaker - see srt.js's header comment). A roster entry already at
 // that id (this project's own, or an earlier cue in the same import) wins -
@@ -220,22 +219,75 @@ function upsertSpeaker(sp) {
   return false;
 }
 
-// SRT import happens AFTER audio, from the setup screen. It keeps the audio
+// Applies the settings + tag set an RSML file's config block carries (see
+// srt.js / configText.js, which has already validated it) to the current
+// project: default code-mixing language, speaker roster, and every tag set the
+// file lists. A tag set the file lists replaces this project's wholesale (the
+// file is saying "this is the set in use", and a merge would leave tags it
+// never had); one it doesn't mention is left alone. The roster follows
+// upsertSpeaker()'s rule - an id already in the roster wins.
+//
+// The tag set goes through syncSettingsPanels() -> rsmlSettings.js's
+// getConfigAnnotator(), which loads it via rsml's own add() - and add()
+// throws on a conflicting name (e.g. one tag registered under two
+// categories, only possible in a hand-edited file). Left unhandled that would
+// leave a rejected tag set saved in state, throwing again on every boot, so
+// on failure every setting touched here is put back - all or nothing, never
+// half of the file's config applied under an error saying it wasn't. Returns
+// whether the file's settings were applied.
+function applyImportedConfig(config) {
+  const prev = {
+    rsmlConfig: state.rsmlConfig,
+    accents: state.accents,
+    defaultCodeMixLanguage: state.defaultCodeMixLanguage,
+    speakers: state.speakers.slice(),
+  };
+  if (config.defaultCodeMixLanguage !== undefined) state.defaultCodeMixLanguage = config.defaultCodeMixLanguage;
+  for (const sp of config.speakers || []) upsertSpeaker(sp);
+
+  const sets = config.tagSets || {};
+  if (sets.accents) state.accents = { ...sets.accents.legend };
+  const rsmlKeys = Object.keys(sets).filter((key) => key !== "accents");
+  if (rsmlKeys.length) {
+    const next = { ...(state.rsmlConfig || {}) };
+    for (const key of rsmlKeys) next[key] = sets[key].tags ? sets[key].tags.slice() : { ...sets[key].legend };
+    state.rsmlConfig = next;
+  }
+
+  try {
+    syncSettingsPanels();
+    return true;
+  } catch (err) {
+    console.warn("imported config rejected by rsml", err);
+    Object.assign(state, prev);
+    syncSettingsPanels();
+    toast(`The settings and tag set in that file couldn't be applied (${err.message}); kept this project's own.`, "error");
+    return false;
+  }
+}
+
+// Transcript import (an RSML or SRT file - one reader handles both, see
+// srt.js) happens AFTER audio, from the setup screen. It keeps the audio
 // already loaded, fills the segments from the cues, and jumps to the editor.
+// An RSML file ends with a config block; its settings and tag set are applied
+// too (see applyImportedConfig() above). A plain SRT has neither that nor
+// per-cue metadata.
 export async function importSrt(srtFile) {
   const text = await srtFile.text();
-  const cues = parseSRT(text);
+  const { cues, config } = parseSRT(text);
   if (!cues.length) {
-    toast("No cues found in that .srt file.", "error");
+    toast("No cues found in that file.", "error");
     return;
   }
+  // Before the segments are built: the roster the file carries has to exist
+  // by the time defaultSpeakerId() looks for speaker 1 just below.
+  const configApplied = config ? applyImportedConfig(config) : false;
   const defaultSpeaker = defaultSpeakerId(state);
   let rosterChanged = false;
   state.segments = cues.map((c) => {
     if (!c.meta) {
-      // Plain third-party SRT (or SRT exported before the metadata line
-      // existed) - no speaker/verified/flag/note to recover, same defaults
-      // as always.
+      // Plain SRT (third-party, or this app's own .srt export) - no
+      // speaker/verified/flag/note to recover, same defaults as always.
       return { id: segId(), start: c.start, end: c.end, rsml: c.text, speaker: defaultSpeaker, verified: false, flagged: false, note: "" };
     }
     for (const sp of c.meta.speakers) {
@@ -245,44 +297,7 @@ export async function importSrt(srtFile) {
   });
   if (rosterChanged) syncSettingsPanels();
   await saveNow();
-  toast(`Imported ${cues.length} segments from ${srtFile.name}`, "success");
-  showScreen("editor");
-}
-
-// JSON project import - a full project replace, same semantics as
-// importSrt() above, but full-fidelity: every segment field (including
-// flagged/note and the real speaker id) and the roster/settings that go
-// with it are restored exactly rather than re-derived.
-export async function importJson(jsonFile) {
-  const text = await jsonFile.text();
-  let data;
-  try {
-    data = parseProjectImport(text);
-  } catch (err) {
-    toast(`Could not read that JSON file (${err.message}).`, "error");
-    return;
-  }
-  if (!data.segments.length) {
-    toast("No segments found in that JSON file.", "error");
-    return;
-  }
-  state.segments = data.segments.map((seg) => ({
-    id: seg.id || segId(),
-    start: seg.start,
-    end: seg.end,
-    rsml: seg.rsml || "",
-    speaker: seg.speaker ?? null,
-    verified: !!seg.verified,
-    flagged: !!seg.flagged,
-    note: seg.note || "",
-  }));
-  if (Array.isArray(data.speakers)) state.speakers = data.speakers;
-  if (data.defaultCodeMixLanguage !== undefined) state.defaultCodeMixLanguage = data.defaultCodeMixLanguage;
-  if (data.accents) state.accents = data.accents;
-  if (data.rsmlConfig !== undefined) state.rsmlConfig = data.rsmlConfig;
-  syncSettingsPanels(); // roster/language/RSML-tags panels must reflect the wholesale-replaced project data
-  await saveNow();
-  toast(`Imported ${state.segments.length} segments from ${jsonFile.name}`, "success");
+  toast(`Imported ${cues.length} segments${configApplied ? " (plus settings and tag set)" : ""} from ${srtFile.name}`, "success");
   showScreen("editor");
 }
 
@@ -407,16 +422,6 @@ function wireSetupNav() {
 
   const skipBtn = document.getElementById("setup-skip-btn");
   if (skipBtn) skipBtn.onclick = runManualVad;
-
-  const jsonBtn = document.getElementById("setup-json-btn");
-  const jsonInput = document.getElementById("json-input");
-  if (jsonBtn && jsonInput) {
-    jsonBtn.onclick = () => jsonInput.click();
-    jsonInput.addEventListener("change", () => {
-      if (jsonInput.files[0]) importJson(jsonInput.files[0]);
-      jsonInput.value = "";
-    });
-  }
 }
 
 // ------------------------------------------------------- settings drawer ----

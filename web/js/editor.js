@@ -1,7 +1,7 @@
 // The editor screen: segment rows (each transcript field bound to a plain
 // textarea + RSML live preview), an editable waveform with a free-moving
 // playhead, per-segment playback, a per-segment "verified" flag, playback
-// follow (auto-scroll + highlight), and SRT export.
+// follow (auto-scroll + highlight), and RSML/SRT export.
 //
 // Large projects (hundreds of segments) stay responsive because the RSML
 // preview binding is created only for rows near the viewport
@@ -20,8 +20,8 @@ import {
 } from "./main.js";
 import * as wav from "./wav.js";
 import * as wf from "./waveform.js";
-import { buildSRT, downloadSRT } from "./srt.js";
-import { buildProjectExport, downloadJSON } from "./projectJson.js";
+import { buildRSML, buildSRT, downloadRSML, downloadSRT } from "./srt.js";
+import { buildExportConfig } from "./exportConfig.js";
 import { speakerLabel, openSpeakerModal, defaultSpeakerId } from "./speakers.js";
 
 const ACTIVATE_MARGIN = "600px"; // IntersectionObserver rootMargin
@@ -1236,6 +1236,15 @@ function wireChrome() {
   wireFontSize();
   wireRsmlDisplay();
 
+  bind("export-rsml-btn", () => {
+    const s = getState();
+    if (!s.segments.length) {
+      toast("Nothing to export yet.", "info");
+      return;
+    }
+    const name = (s.audioMeta && s.audioMeta.name) || "transcript";
+    downloadRSML(name, buildRSML(s.segments, buildExportConfig(s)));
+  });
   bind("export-srt-btn", () => {
     const s = getState();
     if (!s.segments.length) {
@@ -1243,16 +1252,7 @@ function wireChrome() {
       return;
     }
     const name = (s.audioMeta && s.audioMeta.name) || "transcript";
-    downloadSRT(name, buildSRT(s.segments, s.speakers));
-  });
-  bind("export-json-btn", () => {
-    const s = getState();
-    if (!s.segments.length) {
-      toast("Nothing to export yet.", "info");
-      return;
-    }
-    const name = (s.audioMeta && s.audioMeta.name) || "transcript";
-    downloadJSON(name, buildProjectExport(s));
+    downloadSRT(name, buildSRT(s.segments));
   });
 }
 

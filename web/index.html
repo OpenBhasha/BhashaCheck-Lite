@@ -44,7 +44,7 @@
           </div>
 
           <input type="file" id="audio-input" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg,.opus,.webm" hidden />
-          <input type="file" id="srt-input" accept=".srt,text/plain" hidden />
+          <input type="file" id="srt-input" accept=".rsml,.srt,text/plain" hidden />
         </div>
       </section>
 
@@ -53,16 +53,13 @@
         <div class="screen-inner">
           <div class="screen-head">
             <button id="setup-back-btn" class="btn btn-sm btn-link"><i class="bi bi-arrow-left"></i> Upload</button>
-            <h2>Upload SRT</h2>
+            <h2>Upload RSML or SRT</h2>
           </div>
 
           <div id="srt-dropzone" class="dropzone">
             <i class="bi bi-filetype-txt"></i>
-            <div class="dz-title">Drop an SRT file here, or click to choose</div>
+            <div class="dz-title">Drop an RSML or SRT file here, or click to choose</div>
           </div>
-
-          <input type="file" id="json-input" accept=".json,application/json" hidden />
-          <button id="setup-json-btn" class="btn btn-sm btn-link">Or import a JSON project file</button>
 
           <div class="setup-skip">
             <button id="setup-skip-btn" class="btn btn-outline-secondary">Skip</button>
@@ -107,7 +104,7 @@
 
         <div class="editor-bottom">
           <div id="waveform-note" class="waveform-note" hidden>
-            No audio loaded. Editing and SRT export still work.
+            No audio loaded. Editing and export still work.
           </div>
           <div id="waveform-panel" class="waveform-panel" hidden>
             <div id="wf-controls" class="wf-controls">
@@ -145,8 +142,8 @@
                 <i class="bi bi-download"></i> Export
               </button>
               <ul class="dropdown-menu dropdown-menu-end">
+                <li><button type="button" class="dropdown-item" id="export-rsml-btn">RSML (.rsml)</button></li>
                 <li><button type="button" class="dropdown-item" id="export-srt-btn">SRT (.srt)</button></li>
-                <li><button type="button" class="dropdown-item" id="export-json-btn">JSON (.json)</button></li>
               </ul>
             </div>
           </div>
