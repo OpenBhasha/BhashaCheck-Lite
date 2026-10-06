@@ -135,6 +135,8 @@ fi
 
 # Tag the commit that carries this version (the release commit just made, or the
 # commit where it was set by hand) - unless it is tagged already.
+git config user.name > /dev/null || git config user.name "github-actions[bot]"
+git config user.email > /dev/null || git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 target=$(git log -1 --format=%H -- "$FILE")
 if git rev-parse -q --verify "refs/tags/v$next" > /dev/null; then
   echo "tag v$next already exists - leaving it"
