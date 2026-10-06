@@ -19,9 +19,9 @@
 //     domains, accents) is `{ legend: { code: description } }`, since "GPE" or
 //     "hi" means nothing without it.
 //
-// Same rsml version editor.js loads (identical URL, so the browser reuses
-// that one module instance rather than fetching a second copy).
-import RSMLAnnotator from "https://cdn.jsdelivr.net/npm/rsml@3.3.3/rsml.esm.js";
+// The same rsml library every other module uses (see rsmlLib.js).
+import RSMLAnnotator, { RSML_VERSION } from "./rsmlLib.js";
+import { BHASHACHECK_VERSION } from "./version.js";
 
 // Same set rsmlSettings.js skips when it discovers vocabulary categories from
 // a live annotator's .opts - everything else there is a tag set, so a future
@@ -61,12 +61,16 @@ function resolveRsmlTagSets(rsmlConfig) {
   }
 }
 
-// { defaultCodeMixLanguage, speakers, tagSets } - plain data, no references
-// back into `state`. Each speaker's `language` (the language they speak in) and
+// { versions, defaultCodeMixLanguage, speakers, tagSets } - plain data, no
+// references back into `state`. `versions` says what wrote the file: the
+// BhashaCheck version (version.js) and the RSML version (rsmlLib.js) the tags in
+// it were written under, so a reader - a person, or a pipeline like the
+// aligner - can tell which rules apply to it. Each speaker's `language` (the language they speak in) and
 // defaultCodeMixLanguage (the language mixed in within it) are language codes,
 // decoded by tagSets.languages.legend.
 export function buildExportConfig(state) {
   return {
+    versions: { bhashacheck: BHASHACHECK_VERSION, rsml: RSML_VERSION },
     defaultCodeMixLanguage: state.defaultCodeMixLanguage || null,
     speakers: (state.speakers || []).map((sp) => ({ id: sp.id, gender: sp.gender, language: sp.language || null })),
     tagSets: {

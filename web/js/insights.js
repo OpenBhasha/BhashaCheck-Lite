@@ -13,7 +13,7 @@
 // project's vocabulary (opts.languages, opts.entities, ...) for friendly
 // labels and for classifying which family an @tag/span name belongs to —
 // same technique rsmlSettings.js uses for its own config editor.
-import RSMLAnnotator from "https://cdn.jsdelivr.net/npm/rsml@3.3.1/rsml.esm.js";
+import RSMLAnnotator from "./rsmlLib.js";
 
 // Display order: code-mixing and named entities first (the categories
 // called out by name when this feature was requested), then disfluencies,

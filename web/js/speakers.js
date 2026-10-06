@@ -26,7 +26,7 @@
 // at all on real languages, and `_cmComplete` is invoked as `self._cmComplete`
 // where `self` is the annotator instance itself, so shadowing that one
 // method on the instance intercepts it cleanly per row).
-import RSMLAnnotator from "https://cdn.jsdelivr.net/npm/rsml@3.3.0/rsml.esm.js";
+import RSMLAnnotator from "./rsmlLib.js";
 
 const GENDERS = [
   { value: "male", label: "Male" },

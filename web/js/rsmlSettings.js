@@ -21,7 +21,7 @@
 // applyToOpenRows) as a `deps` parameter rather than importing them from
 // main.js/editor.js, keeping this a plain leaf module — see main.js's
 // boot() for why that matters here.
-import RSMLAnnotator from "https://cdn.jsdelivr.net/npm/rsml@3.3.0/rsml.esm.js";
+import RSMLAnnotator from "./rsmlLib.js";
 
 // Presentational only — a category missing from this map still renders
 // fine, just with its raw key title-cased as the label and no hint line.

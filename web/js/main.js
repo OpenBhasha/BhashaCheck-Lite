@@ -10,6 +10,8 @@ import { mountEditor, unmountEditor } from "./editor.js";
 import { renderRsmlSettings } from "./rsmlSettings.js";
 import { renderCodeMixDefault, renderSpeakerSettings, defaultSpeakerId } from "./speakers.js";
 import { renderInsights } from "./insights.js";
+import { BHASHACHECK_VERSION } from "./version.js";
+import { RSML_VERSION } from "./rsmlLib.js";
 
 // ---------------------------------------------------------------- state ----
 
@@ -571,7 +573,22 @@ function syncSettingsPanels() {
   });
 }
 
+// Shows the BhashaCheck and RSML versions (version.js / rsmlLib.js - the same
+// two an exported .rsml file records in its config): a badge beside the name,
+// with both in its tooltip, and spelled out in Settings -> About, where a touch
+// screen (no hover) can read them too.
+function showVersions() {
+  const badge = document.getElementById("app-version");
+  if (badge) {
+    badge.textContent = `v${BHASHACHECK_VERSION}`;
+    badge.title = `BhashaCheck ${BHASHACHECK_VERSION} - RSML ${RSML_VERSION}`;
+  }
+  const about = document.getElementById("about-versions");
+  if (about) about.textContent = `BhashaCheck v${BHASHACHECK_VERSION}, using RSML v${RSML_VERSION}.`;
+}
+
 async function boot() {
+  showVersions();
   wireUpload();
   wireHeader();
   wireSetupNav();

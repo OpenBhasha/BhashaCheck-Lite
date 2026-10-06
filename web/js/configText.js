@@ -5,6 +5,10 @@
 // module.
 //
 //   # BhashaCheck config
+//   [versions]
+//   bhashacheck = 1.0.0
+//   rsml = 3.3.3
+//
 //   [settings]
 //   default_code_mixing_language = en
 //
@@ -24,6 +28,10 @@
 //   hi = Hindi
 //   te = Telugu
 //
+// - `[versions]` says what wrote the file: the BhashaCheck version and the RSML
+//   version the tags in it were written under. It is information for whoever
+//   reads the file; import does not act on it (and ignores it - see
+//   textToConfig()).
 // - `[tags]` holds the self-explanatory sets (hesitations, paralinguistics,
 //   fillers, prosody...), one `name = a, b, c` line each - no legend needed.
 // - Every coded set (entities, languages, dialects, domains, accents) is its
@@ -73,7 +81,11 @@ function kv(key, value) {
 // shows up without touching this (it is only read back if it is listed in
 // TAG_SET_KIND).
 export function configToText(config) {
-  const lines = [CONFIG_MARKER, "[settings]", kv("default_code_mixing_language", config.defaultCodeMixLanguage || ""), "", "[speakers]"];
+  const lines = [CONFIG_MARKER];
+  if (config.versions) {
+    lines.push("[versions]", kv("bhashacheck", config.versions.bhashacheck || ""), kv("rsml", config.versions.rsml || ""), "");
+  }
+  lines.push("[settings]", kv("default_code_mixing_language", config.defaultCodeMixLanguage || ""), "", "[speakers]");
   for (const sp of config.speakers || []) {
     lines.push(kv(sp.id, [oneLine(sp.gender || "unspecified"), sp.language || ""].filter(Boolean).join(", ")));
   }
@@ -194,6 +206,12 @@ export function textToConfig(text) {
     if (eq === -1) continue;
     const key = line.slice(0, eq).trim();
     const value = line.slice(eq + 1).trim();
+
+    // `[versions]` is deliberately not read: it describes what wrote the file
+    // (see the header comment), not anything to apply to the project. Falling
+    // through it here is what keeps its keys ("bhashacheck", "rsml") from ever
+    // being mistaken for a tag set.
+    if (section === "versions") continue;
 
     if (section === "settings") {
       // `default_language` is what files exported before the rename call it.

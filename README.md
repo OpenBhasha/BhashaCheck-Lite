@@ -35,6 +35,10 @@ that reads SRT still finds the transcript in it. On top of that it carries:
 
 ```
 # BhashaCheck config
+[versions]
+bhashacheck = 1.0.0
+rsml = 3.3.3
+
 [settings]
 default_code_mixing_language = en
 
@@ -53,7 +57,8 @@ hi = Hindi
 te = Telugu
 ```
 
-The config is the project's settings plus its complete tag set. The tag set is
+The config is what wrote the file (`[versions]`), the project's settings, and
+its complete tag set. The tag set is
 the *effective* one - the `rsml` library's built-in defaults plus whatever was
 customized in Settings -> RSML tags - not just the customizations. `[tags]`
 holds the self-explanatory sets (hesitations, paralinguistic sounds, fillers,
@@ -81,6 +86,22 @@ tag registered under two categories), the import still brings in the segments
 but leaves the project's own settings and tag set untouched, and says so. Files
 exported by earlier builds of this app (SRTs with per-cue `speakers=` fields,
 or with the config written as an extra last cue) still import.
+
+## Versioning
+
+BhashaCheck uses semantic versioning (`MAJOR.MINOR.PATCH`); the current version
+is shown beside the name in the header and under Settings -> About. It is a single
+constant, `BHASHACHECK_VERSION` in `web/js/version.js` - bump it there, and only
+there.
+
+The **RSML version** is the version of the [`rsml`](https://www.npmjs.com/package/rsml)
+library the app loads. Every module imports it from `web/js/rsmlLib.js`, the one
+place that names it - upgrade it there (the import URL and `RSML_VERSION` sit
+side by side, and both change together).
+
+Every exported `.rsml` file records both in its `[versions]` section, so a
+reader (a person, or a pipeline such as the aligner) can tell which version of
+each produced it. Import does not act on it: the section is read past.
 
 ## Run locally
 
