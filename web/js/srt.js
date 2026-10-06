@@ -79,7 +79,7 @@ function decodeMetaLine(line) {
   const speakers = speakersRaw // undefined (no `speakers=` field) or "" -> none; the config block carries the roster instead
     ? speakersRaw.split(",").map((entry) => {
         const [idRaw, gender, lang] = entry.split(":");
-        return { id: parseInt(idRaw, 10), gender: gender || "unspecified", nativeLanguage: lang || null };
+        return { id: parseInt(idRaw, 10), gender: gender || "unspecified", language: lang || null };
       })
     : [];
   return {

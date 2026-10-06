@@ -36,7 +36,7 @@ that reads SRT still finds the transcript in it. On top of that it carries:
 ```
 # BhashaCheck config
 [settings]
-default_language = te
+default_code_mixing_language = en
 
 [speakers]
 1 = male, te
@@ -61,9 +61,10 @@ prosody, ...), which need no legend. Every set written as a code or id
 (entities, languages, dialects, domains, accents) is its own section of
 `code = description` lines - the legend - e.g. entities `GPE` -> `Geo Political
 Entity`, languages `hi` -> `Hindi`. `[settings]` and `[speakers]` hold the
-default code-mixing language and the speaker roster (gender + native language
-code, decoded by `[languages]`). Anything the config defines is never repeated
-per cue.
+default code-mixing language and the speaker roster (gender + language code,
+decoded by `[languages]`). A speaker's language is the one they speak in; the
+code-mixing language is the one mixed in within it (e.g. English inside Telugu
+speech). Anything the config defines is never repeated per cue.
 
 **SRT (`.srt`)** is the plain, standard option: index, timestamps, text, and
 nothing else (the text is the raw RSML markup). It is lossy by nature - no

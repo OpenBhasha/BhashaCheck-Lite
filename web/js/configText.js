@@ -6,7 +6,7 @@
 //
 //   # BhashaCheck config
 //   [settings]
-//   default_language = te
+//   default_code_mixing_language = en
 //
 //   [speakers]
 //   1 = male, te
@@ -28,8 +28,9 @@
 //   fillers, prosody...), one `name = a, b, c` line each - no legend needed.
 // - Every coded set (entities, languages, dialects, domains, accents) is its
 //   own section of `code = description` lines, the legend.
-// - Speakers are `id = gender, language-code`; the language code is decoded by
-//   `[languages]`, like `default_language`.
+// - Speakers are `id = gender, language-code`: the language that speaker speaks
+//   in. `default_code_mixing_language` is the language mixed in within it
+//   (e.g. English inside Telugu speech). Both are decoded by `[languages]`.
 // Keys are the same category names as the app's own tag-set config. A set
 // that's empty is still written (`hesitations =`, or an empty section) so an
 // emptied set round-trips as empty rather than as "not mentioned".
@@ -72,9 +73,9 @@ function kv(key, value) {
 // shows up without touching this (it is only read back if it is listed in
 // TAG_SET_KIND).
 export function configToText(config) {
-  const lines = [CONFIG_MARKER, "[settings]", kv("default_language", config.defaultCodeMixLanguage || ""), "", "[speakers]"];
+  const lines = [CONFIG_MARKER, "[settings]", kv("default_code_mixing_language", config.defaultCodeMixLanguage || ""), "", "[speakers]"];
   for (const sp of config.speakers || []) {
-    lines.push(kv(sp.id, [oneLine(sp.gender || "unspecified"), sp.nativeLanguage || ""].filter(Boolean).join(", ")));
+    lines.push(kv(sp.id, [oneLine(sp.gender || "unspecified"), sp.language || ""].filter(Boolean).join(", ")));
   }
 
   const sets = Object.entries(config.tagSets || {});
@@ -137,8 +138,8 @@ function sanitizeConfig(raw) {
       if (!sp || !Number.isInteger(sp.id) || sp.id < 1 || seen.has(sp.id)) continue;
       seen.add(sp.id);
       const gender = typeof sp.gender === "string" ? oneLine(sp.gender) : "";
-      const lang = typeof sp.nativeLanguage === "string" ? sp.nativeLanguage.trim() : "";
-      config.speakers.push({ id: sp.id, gender: gender || "unspecified", nativeLanguage: lang || null });
+      const lang = typeof sp.language === "string" ? sp.language.trim() : "";
+      config.speakers.push({ id: sp.id, gender: gender || "unspecified", language: lang || null });
     }
     found = true;
   }
@@ -195,14 +196,15 @@ export function textToConfig(text) {
     const value = line.slice(eq + 1).trim();
 
     if (section === "settings") {
-      if (key === "default_language") raw.defaultCodeMixLanguage = value;
+      // `default_language` is what files exported before the rename call it.
+      if (key === "default_code_mixing_language" || key === "default_language") raw.defaultCodeMixLanguage = value;
     } else if (section === "speakers") {
       if (/^\d+$/.test(key)) {
         const comma = value.indexOf(",");
         raw.speakers.push({
           id: parseInt(key, 10),
           gender: comma === -1 ? value : value.slice(0, comma),
-          nativeLanguage: comma === -1 ? "" : value.slice(comma + 1),
+          language: comma === -1 ? "" : value.slice(comma + 1),
         });
       }
     } else if (section === "tags") {

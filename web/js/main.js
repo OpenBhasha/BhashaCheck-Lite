@@ -32,7 +32,7 @@ const newState = () => ({
   updatedAt: Date.now(),
   audioMeta: null, // { name, type, size, duration }
   segments: [], // { id, start, end, rsml, speaker, verified, flagged, note } - speaker is a speakers[].id or null
-  speakers: [], // { id, gender, nativeLanguage } - id is stable: monotonic, never reused; id 1 is
+  speakers: [], // { id, gender, language } - the language this speaker speaks in; id is stable: monotonic, never reused; id 1 is
   // permanent (can't be removed) and doubles as "the" default speaker - see
   // speakers.js's defaultSpeakerId().
   defaultCodeMixLanguage: null, // language code; boosted to the top of the `!` autocomplete popup
@@ -213,7 +213,7 @@ async function handleAudioFile(file) {
 // this never overwrites it.
 function upsertSpeaker(sp) {
   if (!state.speakers.some((s) => s.id === sp.id)) {
-    state.speakers.push({ id: sp.id, gender: sp.gender, nativeLanguage: sp.nativeLanguage });
+    state.speakers.push({ id: sp.id, gender: sp.gender, language: sp.language });
     return true;
   }
   return false;
@@ -492,6 +492,17 @@ async function rehydrate() {
     if (seg.verified == null) seg.verified = false;
     if (seg.flagged == null) seg.flagged = false;
     if (seg.note == null) seg.note = "";
+  }
+
+  // Migrate: a speaker's language used to be saved as `nativeLanguage`; it is
+  // `language` now (the language that speaker speaks in). Carry the saved value
+  // over, or a project saved before the rename would reopen with every
+  // speaker's language blank. A `language` already there wins.
+  for (const sp of state.speakers || []) {
+    if ("nativeLanguage" in sp) {
+      if (sp.language === undefined) sp.language = sp.nativeLanguage;
+      delete sp.nativeLanguage;
+    }
   }
 
   // Migrate: state.rsmlConfig existed before this app switched to

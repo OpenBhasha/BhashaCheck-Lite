@@ -1,5 +1,5 @@
 // Settings-drawer "Languages" (default code-mixing language) and "Speakers"
-// (gender + native language roster, no name) panels, plus the one shared
+// (gender + language roster, no name) panels, plus the one shared
 // add/edit-speaker modal reachable both from the roster list here and from
 // any segment's own speaker dropdown in editor.js.
 //
@@ -40,7 +40,7 @@ function genderLabel(value) {
 }
 
 export function speakerLabel(sp) {
-  return `Speaker ${sp.id} (${genderLabel(sp.gender)}, ${sp.nativeLanguage || "?"})`;
+  return `Speaker ${sp.id} (${genderLabel(sp.gender)}, ${sp.language || "?"})`;
 }
 
 // select2 (+ jQuery) is loaded via plain <script> tags in index.html, ahead
@@ -230,7 +230,7 @@ export function openSpeakerModal(deps, { onSaved, editSpeaker } = {}) {
   if (!backdrop || !modal) return;
   const languages = getEffectiveLanguages(state);
   const currentGender = editSpeaker ? editSpeaker.gender : GENDERS[0].value;
-  const currentLang = editSpeaker ? editSpeaker.nativeLanguage || "" : "";
+  const currentLang = editSpeaker ? editSpeaker.language || "" : "";
 
   modal.querySelector(".speaker-modal-title").textContent = editSpeaker ? `Edit ${speakerLabel(editSpeaker)}` : "Add speaker";
   modal.querySelector(".speaker-modal-save").textContent = editSpeaker ? "Save" : "Add speaker";
@@ -242,7 +242,7 @@ export function openSpeakerModal(deps, { onSaved, editSpeaker } = {}) {
       </select>
     </div>
     <div>
-      <label class="form-label small mb-1" for="speaker-modal-lang">Native language</label>
+      <label class="form-label small mb-1" for="speaker-modal-lang">Language</label>
       <select id="speaker-modal-lang" class="form-select form-select-sm">
         <option value="">Not set</option>
         ${languageOptions(languages, currentLang, escapeHtml)}
@@ -258,14 +258,14 @@ export function openSpeakerModal(deps, { onSaved, editSpeaker } = {}) {
   modal.querySelectorAll(".speaker-modal-cancel").forEach((btn) => (btn.onclick = close));
   modal.querySelector(".speaker-modal-save").onclick = () => {
     const gender = document.getElementById("speaker-modal-gender").value;
-    const nativeLanguage = document.getElementById("speaker-modal-lang").value || null;
+    const language = document.getElementById("speaker-modal-lang").value || null;
     let sp;
     if (editSpeaker) {
       editSpeaker.gender = gender;
-      editSpeaker.nativeLanguage = nativeLanguage;
+      editSpeaker.language = language;
       sp = editSpeaker;
     } else {
-      sp = { id: nextSpeakerId(state), gender, nativeLanguage };
+      sp = { id: nextSpeakerId(state), gender, language };
       state.speakers.push(sp);
     }
     scheduleSave();

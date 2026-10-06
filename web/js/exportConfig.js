@@ -62,12 +62,13 @@ function resolveRsmlTagSets(rsmlConfig) {
 }
 
 // { defaultCodeMixLanguage, speakers, tagSets } - plain data, no references
-// back into `state`. Speakers' nativeLanguage and defaultCodeMixLanguage are
-// language codes, decoded by tagSets.languages.legend.
+// back into `state`. Each speaker's `language` (the language they speak in) and
+// defaultCodeMixLanguage (the language mixed in within it) are language codes,
+// decoded by tagSets.languages.legend.
 export function buildExportConfig(state) {
   return {
     defaultCodeMixLanguage: state.defaultCodeMixLanguage || null,
-    speakers: (state.speakers || []).map((sp) => ({ id: sp.id, gender: sp.gender, nativeLanguage: sp.nativeLanguage || null })),
+    speakers: (state.speakers || []).map((sp) => ({ id: sp.id, gender: sp.gender, language: sp.language || null })),
     tagSets: {
       ...resolveRsmlTagSets(state.rsmlConfig),
       // rsml has no accents category at all (see rsmlSettings.js's header
