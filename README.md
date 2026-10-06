@@ -78,8 +78,13 @@ speaker, flags, notes or config survive it.
 **Importing** takes either, from the one import control on the setup screen. An
 `.rsml` file restores everything: the segments with their speaker / verified /
 flagged / note, and the config - the default code-mixing language, the speaker
-roster, and every tag set the file lists (a listed tag set replaces the
-project's; one the file doesn't mention is left alone). The config block is cut
+roster, and every tag set the file lists. Whatever the file states **replaces**
+the project's value, even when the project already has settings (so editing the
+config block in an `.rsml` and importing it again takes effect): the roster
+becomes exactly the file's roster, a listed tag set replaces the project's, and
+the default language and accents are set to the file's. Anything the file doesn't
+mention - a tag set it leaves out, or a roster when it has no `[speakers]` section
+- is left alone. The config block is cut
 off before the cues are read, so it is never a transcript segment. A plain SRT
 just seeds the segments. If a hand-edited file's tag set is invalid (say, one
 tag registered under two categories), the import still brings in the segments

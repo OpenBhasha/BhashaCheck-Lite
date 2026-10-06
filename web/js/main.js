@@ -207,8 +207,9 @@ async function handleAudioFile(file) {
   showScreen("setup");
 }
 
-// Recreates a roster entry at the exact id an imported file's metadata line
-// or config block names (unlike matching by gender/language, this keeps any &sN-start/
+// Adds a roster entry at the exact id an imported file's per-cue metadata line
+// names (the OLD file layout, before the config block carried the whole roster -
+// see srt.js's META_LINE_RE) (unlike matching by gender/language, this keeps any &sN-start/
 // &sN-end tokens already baked into the imported rsml text pointing at the
 // right speaker - see srt.js's header comment). A roster entry already at
 // that id (this project's own, or an earlier cue in the same import) wins -
@@ -224,10 +225,15 @@ function upsertSpeaker(sp) {
 // Applies the settings + tag set an RSML file's config block carries (see
 // srt.js / configText.js, which has already validated it) to the current
 // project: default code-mixing language, speaker roster, and every tag set the
-// file lists. A tag set the file lists replaces this project's wholesale (the
-// file is saying "this is the set in use", and a merge would leave tags it
-// never had); one it doesn't mention is left alone. The roster follows
-// upsertSpeaker()'s rule - an id already in the roster wins.
+// file lists. Whatever the file states REPLACES the project's value outright -
+// the file is saying "this is the setting", and a merge would keep things it
+// never had or ignore a change you made to it. That goes for a tag set (one the
+// file doesn't mention is left alone) and for the roster: a file that lists
+// speakers replaces the project's whole roster. (The cues it brings in refer to
+// those speakers by id; keeping the project's own speaker 1 - maybe another
+// gender or language - would silently re-attribute them.) A file with no roster
+// block - a plain SRT, or the old layout with per-cue `speakers=` fields - leaves
+// the roster alone, and any speakers it names are added by id (upsertSpeaker()).
 //
 // The tag set goes through syncSettingsPanels() -> rsmlSettings.js's
 // getConfigAnnotator(), which loads it via rsml's own add() - and add()
@@ -245,7 +251,7 @@ function applyImportedConfig(config) {
     speakers: state.speakers.slice(),
   };
   if (config.defaultCodeMixLanguage !== undefined) state.defaultCodeMixLanguage = config.defaultCodeMixLanguage;
-  for (const sp of config.speakers || []) upsertSpeaker(sp);
+  if (config.speakers) state.speakers = config.speakers.map((sp) => ({ id: sp.id, gender: sp.gender, language: sp.language }));
 
   const sets = config.tagSets || {};
   if (sets.accents) state.accents = { ...sets.accents.legend };
