@@ -144,6 +144,27 @@ main > section { flex: 1; min-height: 0; }
   cursor: pointer;
 }
 .verify-toggle input { width: 15px; height: 15px; }
+/* Total RSML errors and warnings across every segment; with any, each is a
+   button that jumps to the first of its kind (editor.js's goToFirstIssue).
+   Errors read green at zero (all clear); warnings read muted at zero, since
+   they are advisory. */
+.rsml-errors-btn,
+.rsml-warnings-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  cursor: default;
+}
+.rsml-errors-btn { color: var(--ok); }
+.rsml-warnings-btn { color: var(--muted); }
+.rsml-errors-btn.has-errors { color: var(--err); font-weight: 600; cursor: pointer; }
+.rsml-warnings-btn.has-warnings { color: var(--warn); font-weight: 600; cursor: pointer; }
+.rsml-errors-btn.has-errors:hover span,
+.rsml-warnings-btn.has-warnings:hover span { text-decoration: underline; }
 /* Bootstrap's .form-check is a block with padding-left offset for the
    input, sized for a stacked list of options - flexed and re-centered here
    to sit inline with the toolbar's other controls, same look rsml's own
@@ -481,7 +502,7 @@ main > section { flex: 1; min-height: 0; }
 .waveform-note { padding: 10px 16px; font-size: 13px; color: var(--muted); }
 .waveform-panel { padding: 8px 14px 10px; }
 .wf-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
-.wf-clock { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+.wf-clock { font-family: var(--mono); font-size: 13px; color: var(--muted); white-space: nowrap; }
 .wf-inline { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .wf-inline .form-select { width: auto; }
 .wf-inline .form-range { width: 150px; }
@@ -540,6 +561,22 @@ main > section { flex: 1; min-height: 0; }
   overflow: hidden;
 }
 .waveform .region-active { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* The label inside each segment's region: segment number + primary speaker
+   (waveform.js / editor.js's regionLabel). WaveSurfer draws regions inside a
+   shadow root, so this reaches the region's content through the part name it
+   exposes. Clipped to the region's own width so a short segment cuts its
+   label with an ellipsis instead of spilling over its neighbour. */
+.waveform > div::part(region-content) {
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+}
 
 .editor-foot {
   display: flex;

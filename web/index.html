@@ -77,6 +77,14 @@
             <input type="checkbox" id="verify-all" />
             <span><span id="verify-count">0 / 0</span> verified</span>
           </label>
+          <button type="button" id="rsml-errors-btn" class="rsml-errors-btn" hidden>
+            <i class="bi bi-check-circle-fill"></i>
+            <span id="rsml-errors-label">0 RSML errors</span>
+          </button>
+          <button type="button" id="rsml-warnings-btn" class="rsml-warnings-btn" hidden>
+            <i class="bi bi-exclamation-triangle"></i>
+            <span id="rsml-warnings-label">0 RSML warnings</span>
+          </button>
           <span class="flex-spacer"></span>
           <div class="form-check form-switch rsml-display-switch" title="Toggle the RSML preview between normalized and verbatim text, for every segment">
             <input class="form-check-input" type="checkbox" role="switch" id="rsml-mode-toggle" checked />
@@ -110,7 +118,7 @@
             <div id="wf-controls" class="wf-controls">
               <button id="wf-play" class="btn btn-sm btn-primary"><i class="bi bi-play-fill"></i></button>
               <button id="wf-stop" class="btn btn-sm btn-outline-secondary"><i class="bi bi-stop-fill"></i></button>
-              <span id="wf-clock" class="wf-clock">00:00</span>
+              <span id="wf-clock" class="wf-clock" title="Current time / total audio duration">00:00</span>
               <button id="wf-loop" class="btn btn-sm btn-outline-secondary" title="Loop selected segment"><i class="bi bi-repeat"></i></button>
               <button id="wf-split" class="btn btn-sm btn-outline-secondary" title="Split the segment under the playhead into two, right at the playhead">
                 <i class="bi bi-scissors"></i> Split at Playhead

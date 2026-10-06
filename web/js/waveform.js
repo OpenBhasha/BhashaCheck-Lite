@@ -265,6 +265,15 @@ export function scrollByPixels(dpx) {
   refreshView();
 }
 
+// What a region shows: `handlers.regionLabel(seg, index)` -> { text, title },
+// supplied by the editor (which knows about speakers; this module doesn't).
+// `text` is the label drawn inside the region, `title` the tooltip. Without
+// that handler a region just shows its segment number, as it always did.
+function labelFor(seg, i) {
+  const label = handlers.regionLabel ? handlers.regionLabel(seg, i) : null;
+  return { text: label ? label.text : String(i + 1), title: label && label.title ? label.title : "" };
+}
+
 export function setRegions(segments) {
   if (!regions) return;
   suppress = true;
@@ -273,15 +282,37 @@ export function setRegions(segments) {
     knownIds = new Set();
     segments.forEach((seg, i) => {
       knownIds.add(seg.id);
-      regions.addRegion({
+      const label = labelFor(seg, i);
+      const region = regions.addRegion({
         id: seg.id,
         start: seg.start,
         end: seg.end,
         color: regionColorFor(seg),
         drag: true,
         resize: true,
-        content: String(i + 1),
+        content: label.text,
       });
+      if (region && region.element) region.element.title = label.title;
+    });
+  } finally {
+    suppress = false;
+  }
+}
+
+// Redraw every region's label in place (a speaker was reassigned, or a
+// speaker's gender/language was edited) without rebuilding the regions, so it
+// never disturbs a drag in progress - same idea as syncRegionColors() below.
+export function refreshRegionLabels(segments) {
+  if (!regions) return;
+  suppress = true;
+  try {
+    const byId = new Map(segments.map((seg, i) => [seg.id, { seg, i }]));
+    regions.getRegions().forEach((r) => {
+      const hit = byId.get(r.id);
+      if (!hit) return;
+      const label = labelFor(hit.seg, hit.i);
+      r.setOptions({ content: label.text });
+      if (r.element) r.element.title = label.title;
     });
   } finally {
     suppress = false;

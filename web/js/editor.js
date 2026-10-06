@@ -63,6 +63,7 @@ export async function mountEditor() {
   }
   reindex();
   updateVerifyCount();
+  refreshIssueCount();
 
   io = new IntersectionObserver(
     (entries) => {
@@ -90,6 +91,8 @@ export function unmountEditor() {
   if (!mounted) return;
   mounted = false;
   clearInterval(sweepTimer);
+  clearTimeout(issueTimer);
+  issueHits = { errors: [], warnings: [] };
   if (keyHandler) window.removeEventListener("keydown", keyHandler, true);
   keyHandler = null;
   if (io) io.disconnect();
@@ -140,10 +143,12 @@ async function initWaveform() {
         if (!playing) resetAllPlayButtons();
       },
       onSegmentEnd: (id) => setPlayButton(id, false),
+      regionLabel,
     });
     wf.setZoom(getState().ui.zoom || 40);
     wf.setSpeed(getState().ui.speed || 1);
     wf.setRegions(getState().segments);
+    updateClock(0);
     updateScrubHead(0);
     updateScrubMarks();
   } catch (err) {
@@ -155,10 +160,20 @@ async function initWaveform() {
 }
 
 function onPlayhead(t) {
-  const clock = document.getElementById("wf-clock");
-  if (clock) clock.textContent = fmtClock(t);
+  updateClock(t);
   updateScrubHead(t);
   followPlayback(t);
+}
+
+// "current / total": the playhead position and the length of the whole audio.
+// Both switch to h:mm:ss together once the audio is an hour or longer, so the
+// two halves always line up.
+function updateClock(t) {
+  const clock = document.getElementById("wf-clock");
+  if (!clock) return;
+  const total = wf.isReady() ? wf.getDuration() : 0;
+  const hours = total >= 3600;
+  clock.textContent = total > 0 ? `${fmtClock(t, hours)} / ${fmtClock(total, hours)}` : fmtClock(t);
 }
 
 // Position the scrub-strip handle to match the WaveSurfer cursor. The strip
@@ -245,6 +260,21 @@ function setActive(id, { scroll = false, seek = false } = {}) {
       }
     }
   }
+}
+
+// The label inside a segment's waveform region: its number and its primary
+// speaker (seg.speaker - the same one the row's dropdown and the `primary=`
+// field of an .rsml file hold), e.g. "3 · S1 · M · te". Gender and language
+// are left out when the speaker has none set. The tooltip spells it all out,
+// since a short region clips the label with an ellipsis.
+const GENDER_INITIAL = { male: "M", female: "F", other: "O" };
+function regionLabel(seg, i) {
+  const n = i + 1;
+  if (seg.speaker == null) return { text: `${n} · no speaker`, title: `Segment ${n}: no speaker set` };
+  const sp = getState().speakers.find((x) => x.id === seg.speaker);
+  if (!sp) return { text: `${n} · S${seg.speaker}?`, title: `Segment ${n}: Speaker ${seg.speaker} (removed)` };
+  const text = [n, `S${sp.id}`, GENDER_INITIAL[sp.gender], sp.language].filter(Boolean).join(" · ");
+  return { text, title: `Segment ${n}: ${speakerLabel(sp)}` };
 }
 
 // While audio plays, keep the segment under the playhead active and in view.
@@ -405,12 +435,14 @@ function buildRow(seg) {
           seg.speaker = sp.id;
           scheduleSave();
           els.speaker.innerHTML = speakerOptionsHtml(seg.speaker);
+          if (wf.isReady()) wf.refreshRegionLabels(getState().segments);
         },
       });
       return;
     }
     seg.speaker = parseInt(els.speaker.value, 10);
     scheduleSave();
+    if (wf.isReady()) wf.refreshRegionLabels(getState().segments);
   };
   // A click anywhere in the row (bar, times, textarea, preview, buttons) marks
   // it the active segment. No scroll / no seek here, so editing is undisturbed.
@@ -498,6 +530,7 @@ function activate(id, { focus }) {
       rec.seg.rsml = ta.value;
       rec.output.textContent = ta.value;
       scheduleSave();
+      scheduleIssueCount();
     });
   }
   // Always mirror edits straight to state on input (belt and braces alongside
@@ -506,6 +539,7 @@ function activate(id, { focus }) {
     if (rec.seg.rsml !== ta.value) {
       rec.seg.rsml = ta.value;
       scheduleSave();
+      scheduleIssueCount();
     }
   });
   if (focus) ta.focus();
@@ -515,7 +549,7 @@ function deactivate(id) {
   const rec = rows.get(id);
   if (!rec || !rec.active) return;
   if (rec.el.contains(document.activeElement)) return; // don't yank a focused editor
-  syncOne(rec);
+  if (syncOne(rec)) scheduleIssueCount();
   try {
     rec.annotator && rec.annotator.destroy && rec.annotator.destroy();
   } catch {}
@@ -533,6 +567,7 @@ function deactivate(id) {
 // refresh included), so this needs no rebuild and is safe even on a row
 // that's currently focused/mid-edit.
 export function applyRsmlChange(category, action, value, label) {
+  scheduleIssueCount(); // the vocabulary changed, so what counts as an error or warning may have too
   for (const rec of rows.values()) {
     if (!rec.active || !rec.annotator) continue;
     try {
@@ -550,6 +585,7 @@ export function refreshSpeakerDropdowns() {
   for (const rec of rows.values()) {
     rec.els.speaker.innerHTML = speakerOptionsHtml(rec.seg.speaker);
   }
+  if (wf.isReady()) wf.refreshRegionLabels(getState().segments);
 }
 
 // Mirrors rsml's own trigger regex exactly (see its _cmComplete source) so
@@ -1044,6 +1080,7 @@ function addSegment(start, end, speakerOverride) {
   };
   s.segments.push(seg);
   s.segments.sort((a, b) => a.start - b.start);
+  scheduleIssueCount();
   const list = document.getElementById("seg-list");
   const rowEl = buildRow(seg);
   const gapEl = rows.get(seg.id).gapEl;
@@ -1079,6 +1116,7 @@ function removeSegment(id) {
   }
   if (activeId === id) activeId = null;
   s.segments = s.segments.filter((x) => x.id !== id);
+  scheduleIssueCount();
   reindex();
   updateVerifyCount();
   document.getElementById("editor-empty").hidden = s.segments.length > 0;
@@ -1192,6 +1230,211 @@ function updateVerifyCount() {
   }
 }
 
+// ---------------------------------------------------------- rsml issues ----
+//
+// The toolbar's "N RSML errors" and "N RSML warnings": totals across EVERY
+// segment, not just the rows that happen to have a live editor mounted (most
+// don't - see sweep()). Counted with rsml's own validator, _findIssues(text),
+// run over each segment's saved text by a throwaway hidden annotator built
+// from the same tag vocabulary the rows use (so a tag that is valid here isn't
+// miscounted). It returns both kinds in one pass, the same two a row's own
+// status bar shows as "✕ N errors" and "⚠ N warnings":
+//   errors   - structural: unpaired -start/-end, unclosed brackets, stray chars
+//   warnings - semantic: unknown entity type, language code or @tag
+// _findIssues is private to the library, so if a future version drops it the
+// buttons hide themselves rather than lying.
+
+// One entry per segment that has any: { id, count, first: { start, end, message } },
+// in segment order. `null` when the validator isn't available.
+let issueHits = { errors: [], warnings: [] };
+let issueTimer = null;
+
+const ISSUE_KINDS = {
+  errors: {
+    btn: "rsml-errors-btn",
+    label: "rsml-errors-label",
+    noun: "RSML error",
+    single: "error",
+    cls: "has-errors",
+    iconOn: "bi bi-x-octagon-fill",
+    iconOff: "bi bi-check-circle-fill",
+  },
+  warnings: {
+    btn: "rsml-warnings-btn",
+    label: "rsml-warnings-label",
+    noun: "RSML warning",
+    single: "warning",
+    cls: "has-warnings",
+    iconOn: "bi bi-exclamation-triangle-fill",
+    iconOff: "bi bi-exclamation-triangle",
+  },
+};
+
+function collectIssues() {
+  const ta = document.createElement("textarea");
+  const out = document.createElement("div");
+  let validator;
+  try {
+    validator = new RSMLAnnotator({ textarea: ta, output: out, disableCodeMirror: true, ...(getState().rsmlConfig || {}) });
+  } catch (err) {
+    console.warn("RSML issue count unavailable", err);
+    return null;
+  }
+  try {
+    if (typeof validator._findIssues !== "function") return null;
+    const hits = { errors: [], warnings: [] };
+    const earliest = (list) => list.reduce((a, b) => (b.start < a.start ? b : a));
+    for (const seg of getState().segments) {
+      const found = validator._findIssues(seg.rsml || "");
+      for (const kind of Object.keys(hits)) {
+        const list = found[kind] || [];
+        if (list.length) hits[kind].push({ id: seg.id, count: list.length, first: earliest(list) });
+      }
+    }
+    return hits;
+  } finally {
+    try {
+      validator.destroy();
+    } catch {}
+  }
+}
+
+function renderIssueCount() {
+  const segs = getState().segments;
+  for (const [kind, k] of Object.entries(ISSUE_KINDS)) {
+    const btn = document.getElementById(k.btn);
+    if (!btn) continue;
+    if (issueHits === null) {
+      btn.hidden = true;
+      continue;
+    }
+    const hits = issueHits[kind];
+    const total = hits.reduce((n, h) => n + h.count, 0);
+    btn.hidden = false;
+    btn.classList.toggle(k.cls, total > 0);
+    btn.querySelector("i").className = total > 0 ? k.iconOn : k.iconOff;
+    document.getElementById(k.label).textContent = `${total} ${k.noun}${total === 1 ? "" : "s"}`;
+    btn.title = total
+      ? `Click to jump to the first ${k.single} (segment ${segs.findIndex((x) => x.id === hits[0].id) + 1}); ${hits.length} segment${hits.length === 1 ? "" : "s"} affected`
+      : `No RSML ${kind} in any segment`;
+  }
+}
+
+function refreshIssueCount() {
+  clearTimeout(issueTimer);
+  if (!mounted) return;
+  issueHits = collectIssues();
+  renderIssueCount();
+}
+
+// Debounced: typing fires this on every keystroke, and a recount walks every
+// segment.
+function scheduleIssueCount() {
+  clearTimeout(issueTimer);
+  issueTimer = setTimeout(refreshIssueCount, 300);
+}
+
+// Jumps to the first segment (in order) with an issue of this kind: highlights
+// it, mounts its editor, moves the playhead to it, smooth-scrolls it to the
+// TOP of the list, and selects the offending text. Recounts first - from the
+// live editors' text, not whatever the debounce last saw - so a click never
+// chases an issue that has already been fixed.
+//
+// It does its own scrolling (scrollRowToTop) instead of selectRow()'s, which
+// only scrolls if the row is out of view and then centers it; and the editor
+// is focused with preventScroll and the selection set without CM6's
+// scrollIntoView, because both of those scroll every scrollable ancestor
+// INSTANTLY - they cancel a smooth scroll in flight and leave the row parked
+// at the nearest edge (the bottom, for a jump from above).
+function goToFirstIssue(kind) {
+  for (const rec of rows.values()) if (rec.active) syncOne(rec);
+  refreshIssueCount();
+  const hit = issueHits && issueHits[kind][0];
+  if (!hit) {
+    toast(`No RSML ${kind}.`, "info");
+    return;
+  }
+  activate(hit.id, { focus: false });
+  setActive(hit.id, { seek: true });
+  scrollRowToTop(hit.id);
+  focusIssueRange(hit.id, hit.first);
+}
+
+const SCROLL_TOP_GAP = 8; // px between the list's top edge and the row it was scrolled to
+
+// Smooth-scrolls #seg-list so this row's top sits just under the toolbar. Rows
+// mount their live editors as they scroll into range, which can change the
+// height of rows above the target, so a distance measured up front can be off
+// by the time the scroll lands; once it has settled, correct whatever drift is
+// left (a few times at most - the last rows can't reach the top at all, since
+// there's nothing below them to scroll into).
+function scrollRowToTop(id) {
+  const rec = rows.get(id);
+  if (!rec) return;
+  const list = document.getElementById("seg-list");
+  const gap = () => rec.el.getBoundingClientRect().top - list.getBoundingClientRect().top - SCROLL_TOP_GAP;
+  if (Math.abs(gap()) > 2) list.scrollBy({ top: gap(), behavior: "smooth" });
+
+  let corrections = 0;
+  let last = list.scrollTop;
+  const started = performance.now();
+  let changedAt = started;
+  const watch = () => {
+    const now = performance.now();
+    if (list.scrollTop !== last) {
+      last = list.scrollTop;
+      changedAt = now;
+    }
+    if (now - started > 3000) return;
+    if (now - changedAt > 160 && now - started > 250) {
+      // settled
+      if (Math.abs(gap()) > 2 && corrections++ < 3) {
+        list.scrollBy({ top: gap(), behavior: "smooth" });
+        changedAt = now;
+      } else {
+        return;
+      }
+    }
+    requestAnimationFrame(watch);
+  };
+  requestAnimationFrame(watch);
+}
+
+// Puts the selection on the issue's text in the row's editor and focuses it,
+// without scrolling the page (see goToFirstIssue). CM6 mounts asynchronously
+// after activate(), so - like focusSegmentEditor() above - this retries across
+// a few frames until the view exists.
+function focusIssueRange(id, issue, attempt = 0) {
+  const rec = rows.get(id);
+  if (!rec) return;
+  const view = rec.annotator && rec.annotator.view;
+  if (view) {
+    const len = view.state.doc.length;
+    const from = Math.min(issue.start, len);
+    view.dispatch({ selection: { anchor: from, head: Math.min(issue.end, len) } });
+    view.contentDOM.focus({ preventScroll: true });
+    revealInEditor(view, from);
+    return;
+  }
+  if (!rec.annotator && rec.textarea) {
+    // plain-textarea fallback (RSMLAnnotator failed to construct)
+    rec.textarea.focus({ preventScroll: true });
+    rec.textarea.setSelectionRange(issue.start, issue.end);
+    return;
+  }
+  if (attempt < 20) requestAnimationFrame(() => focusIssueRange(id, issue, attempt + 1));
+}
+
+// A long segment can scroll inside its own editor. Bring `pos` into view there
+// by moving only the editor's own scroller - never the page.
+function revealInEditor(view, pos) {
+  const at = view.coordsAtPos(pos);
+  if (!at) return;
+  const box = view.scrollDOM.getBoundingClientRect();
+  if (at.top < box.top) view.scrollDOM.scrollTop -= box.top - at.top + 8;
+  else if (at.bottom > box.bottom) view.scrollDOM.scrollTop += at.bottom - box.bottom + 8;
+}
+
 function setAllVerified(v) {
   for (const seg of getState().segments) seg.verified = v;
   for (const r of rows.values()) {
@@ -1236,6 +1479,8 @@ function wireChrome() {
   wireFontSize();
   wireRsmlDisplay();
 
+  bind("rsml-errors-btn", () => goToFirstIssue("errors"));
+  bind("rsml-warnings-btn", () => goToFirstIssue("warnings"));
   bind("export-rsml-btn", () => {
     const s = getState();
     if (!s.segments.length) {
@@ -1450,7 +1695,10 @@ function sweep() {
     if (rec.active) continue;
     if (distFromViewport(rec.el, vr) <= ACTIVATE_DIST) activate(rec.seg.id, { focus: false });
   }
-  if (changed) scheduleSave();
+  if (changed) {
+    scheduleSave();
+    scheduleIssueCount();
+  }
 }
 
 // --------------------------------------------------------------- utils ----
@@ -1472,7 +1720,7 @@ function splitTime(sec) {
   if (ms === 1000) whole += 1;
   return { h: Math.floor(whole / 3600), m: Math.floor(whole / 60) % 60, s: whole % 60, ms: ms % 1000 };
 }
-function fmtClock(t) {
-  const { m, s } = splitTime(t);
-  return `${pad2(m)}:${pad2(s)}`;
+function fmtClock(t, withHours = false) {
+  const { h, m, s } = splitTime(t);
+  return withHours || h > 0 ? `${h}:${pad2(m)}:${pad2(s)}` : `${pad2(m)}:${pad2(s)}`;
 }
