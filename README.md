@@ -36,7 +36,7 @@ that reads SRT still finds the transcript in it. On top of that it carries:
 ```
 # BhashaCheck config
 [versions]
-bhashacheck = 1.0.0
+bhashacheck = 1.0.1
 rsml = 3.3.3
 
 [settings]
@@ -57,8 +57,8 @@ hi = Hindi
 te = Telugu
 ```
 
-The config is what wrote the file (`[versions]`), the project's settings, and
-its complete tag set. The tag set is
+The config is what wrote the file (`[versions]` - the numbers shown here are just
+an example), the project's settings, and its complete tag set. The tag set is
 the *effective* one - the `rsml` library's built-in defaults plus whatever was
 customized in Settings -> RSML tags - not just the customizations. `[tags]`
 holds the self-explanatory sets (hesitations, paralinguistic sounds, fillers,
@@ -91,8 +91,23 @@ or with the config written as an extra last cue) still import.
 
 BhashaCheck uses semantic versioning (`MAJOR.MINOR.PATCH`); the current version
 is shown beside the name in the header and under Settings -> About. It is a single
-constant, `BHASHACHECK_VERSION` in `web/js/version.js` - bump it there, and only
-there.
+constant, `BHASHACHECK_VERSION` in `web/js/version.js`, and it **versions itself**:
+
+- Every push to `main` that changes the app (`web/**`) is versioned by the deploy
+  workflow (`.github/workflows/deploy-pages.yml`, using `scripts/bump-version.sh`).
+  It raises the **patch** number, commits that as `chore(release): vX.Y.Z`, tags it
+  `vX.Y.Z`, and then deploys that commit - so the deployed site always shows the
+  version it was built from.
+- **Minor and major** are yours to set: edit `BHASHACHECK_VERSION` yourself in your
+  push (say to `1.1.0`). The workflow sees you changed it, keeps your number, and
+  just tags it - it does not bump it again. Don't edit the patch number by hand.
+- Re-running the workflow for a push that was already versioned does nothing
+  extra, and a failed version step never blocks a deploy (the version job turns
+  red; the site still ships).
+- The release commit lands on `main` *after* your push, so run `git pull --rebase`
+  before your next push. The workflow needs permission to push to `main` (it asks
+  for `contents: write` itself; a branch-protection rule on `main` would stop it
+  unless GitHub Actions is allowed to bypass it).
 
 The **RSML version** is the version of the [`rsml`](https://www.npmjs.com/package/rsml)
 library the app is running, and it follows npm's **latest release automatically**:

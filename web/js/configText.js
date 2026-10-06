@@ -6,7 +6,7 @@
 //
 //   # BhashaCheck config
 //   [versions]
-//   bhashacheck = 1.0.0
+//   bhashacheck = 1.0.1
 //   rsml = 3.3.3
 //
 //   [settings]

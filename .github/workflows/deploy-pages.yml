@@ -1,28 +1,71 @@
 name: Deploy to GitHub Pages
 
+# Every push to main that changes the app (web/**) is versioned and then
+# deployed: the `version` job raises the patch number in web/js/version.js,
+# commits and tags it (see scripts/bump-version.sh), and the `deploy` job ships
+# that commit - so the deployed site always shows the version it was built from.
+# Set a new minor/major version by editing web/js/version.js yourself in your
+# push; it is then kept as is and tagged, not bumped again.
 on:
   push:
     branches: [main]
+    paths: ["web/**"]
   workflow_dispatch:
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
+  version:
+    # Never for the release commit this job pushes itself. (A push made with the
+    # built-in GITHUB_TOKEN doesn't start a new workflow run anyway, so this only
+    # matters if that token is ever swapped for a personal access token.)
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to push the release commit and tag
+    outputs:
+      sha: ${{ steps.release.outputs.sha }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Checkout the tip of the branch, with history and tags
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - name: Bump the patch version, commit and tag
+        id: release
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" = "push" ]; then
+            sh scripts/bump-version.sh "$BEFORE"
+          else
+            # A manual run redeploys what is there; it does not make a release.
+            sh scripts/bump-version.sh --report
+          fi
+
   deploy:
+    needs: version
+    # Deploy even if the version step failed (say, a protected branch refused the
+    # release commit): a broken version bump must never block shipping. Skip only
+    # when the version job was skipped (the release commit itself).
+    if: ${{ !cancelled() && needs.version.result != 'skipped' }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     steps:
-      - name: Checkout
+      - name: Checkout the commit that carries the version
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha || github.sha }}
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload web/ as the Pages artifact
