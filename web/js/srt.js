@@ -97,6 +97,20 @@ function decodeMetaLine(line) {
 // their config is not read back.
 const LEGACY_CONFIG_CUE_RE = /^\[bhashacheck-config v\d+\]/;
 
+// Word-level alignment is not this app's business: a separate aligner pipeline
+// adds it to an .rsml file, under each cue's segment text, as indented
+// triples - an indented timestamp line, an indented metrics line, an indented
+// word - e.g.
+//   \t00:00:14,820 --> 00:00:14,937
+//   \tconfidence=1.000|...|kind=word|script=latin|flagged=0
+//   \tIn
+// Import reads the segment level only: a cue's text stops at the first
+// indented timestamp line, and the word-level lines after it are ignored (export
+// writes the segment level only, so they do not survive a round trip through
+// this app). Matching an indented *timestamp* line - not just any indented
+// line - keeps a segment whose own text happens to start with whitespace intact.
+const WORD_LEVEL_RE = /^[ \t]+\d+:\d+:\d+[,.]\d+\s*-->/;
+
 // -> { cues, config }. `cues` are the transcript cues; the config block at
 // the end of an RSML file (see configText.js) is never one of them - it comes
 // back as `config` instead (exportConfig.js's shape, only the parts the file
@@ -127,7 +141,11 @@ export function parseSRT(text) {
       meta = decodeMetaLine(metaLine);
       bodyStart += 1;
     }
-    const content = lines.slice(bodyStart).join("\n").trim();
+    // The segment's own text is everything up to the first word-level line (see
+    // WORD_LEVEL_RE); anything from there on in the cue is dropped.
+    const body = lines.slice(bodyStart);
+    const wordLevelAt = body.findIndex((l) => WORD_LEVEL_RE.test(l));
+    const content = (wordLevelAt === -1 ? body : body.slice(0, wordLevelAt)).join("\n").trim();
     if (LEGACY_CONFIG_CUE_RE.test(content)) continue; // see LEGACY_CONFIG_CUE_RE
     out.push({ start, end, text: content, meta });
   }
