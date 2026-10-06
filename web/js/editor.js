@@ -47,6 +47,8 @@ export async function mountEditor() {
   mounted = true;
   const s = getState();
 
+  flaggedOnly = false;
+  document.getElementById("seg-list").classList.remove("flagged-only");
   document.getElementById("editor-empty").hidden = s.segments.length > 0;
   wireChrome();
   wireWaveformControls();
@@ -93,6 +95,7 @@ export function unmountEditor() {
   clearInterval(sweepTimer);
   clearTimeout(issueTimer);
   issueHits = { errors: [], warnings: [] };
+  flaggedOnly = false;
   if (keyHandler) window.removeEventListener("keydown", keyHandler, true);
   keyHandler = null;
   if (io) io.disconnect();
@@ -863,6 +866,7 @@ function reindex() {
 // Full "go to this segment": highlight it, mount its editor, scroll it into
 // view, and optionally move the playhead to its start.
 function selectRow(id, seek) {
+  ensureRowVisible(id);
   activate(id, { focus: false });
   setActive(id, { scroll: true, seek });
 }
@@ -919,7 +923,10 @@ function focusSegmentEditor(id, attempt = 0) {
 // all route through this so "keep moving forward while transcribing" stays
 // one keystroke. No active segment yet: both directions land on the first.
 function stepSegment(dir) {
-  const ids = getState().segments.map((s) => s.id);
+  // With "only flagged" on, step through the flagged segments - the ones on screen.
+  const ids = getState()
+    .segments.filter((s) => !flaggedOnly || s.flagged)
+    .map((s) => s.id);
   if (!ids.length) return;
   const cur = activeId ? ids.indexOf(activeId) : -1;
   const idx = cur === -1 ? 0 : cur + dir;
@@ -967,6 +974,7 @@ function toggleShortcutsModal(forceOpen) {
 // modal saves, and after a merge folds in the other segment's flag.
 function applyFlagVisuals(rec) {
   rec.el.classList.toggle("flagged", !!rec.seg.flagged);
+  updateFlaggedCount();
   const icon = rec.els.flag.querySelector("i");
   icon.className = "bi " + (rec.seg.flagged ? "bi-flag-fill" : "bi-flag");
   if (wf.isReady()) {
@@ -1215,6 +1223,7 @@ function splitAtPlayhead() {
 // ------------------------------------------------------------- verified ----
 
 function updateVerifyCount() {
+  updateFlaggedCount(); // also runs on mount / add / remove, the other times the flagged total can change
   const s = getState();
   const n = s.segments.filter((x) => x.verified).length;
   const cnt = document.getElementById("verify-count");
@@ -1228,6 +1237,75 @@ function updateVerifyCount() {
     wf.syncRegionColors(s.segments);
     updateScrubMarks();
   }
+}
+
+// -------------------------------------------------------------- flagged ----
+//
+// The toolbar's "N flagged" is also the switch for "show only flagged
+// segments". The filter itself is CSS (.seg-list.flagged-only hides every row
+// without the .flagged class, see app.css), so flagging/unflagging a row
+// updates the list on its own; this just owns the on/off state and the count.
+// It is deliberately not saved: a reload, or opening another project, starts
+// with everything showing.
+
+let flaggedOnly = false;
+
+// Is this segment's row hidden by the filter right now?
+function hiddenByFilter(seg) {
+  return flaggedOnly && !seg.flagged;
+}
+
+function updateFlaggedCount() {
+  const btn = document.getElementById("flagged-btn");
+  if (!btn) return;
+  const n = getState().segments.filter((s) => s.flagged).length;
+  btn.classList.toggle("has-flagged", n > 0);
+  btn.setAttribute("aria-pressed", String(flaggedOnly));
+  btn.querySelector("i").className = n > 0 || flaggedOnly ? "bi bi-flag-fill" : "bi bi-flag";
+  // Same text either way: a longer "Showing N flagged" would widen the toolbar
+  // enough to wrap it onto a second row at common window widths, shoving the
+  // whole list down every time the filter toggles. The pressed pill (see
+  // .flagged-btn in app.css) and the tooltip carry the state instead.
+  document.getElementById("flagged-label").textContent = `${n} flagged`;
+  btn.title = flaggedOnly
+    ? "Showing only the flagged segments - click to show every segment"
+    : n
+      ? "Click to show only the flagged segments"
+      : "No flagged segments";
+  // Filtered down to nothing (the last flagged segment was just unflagged):
+  // say so, rather than leave a blank list.
+  document.getElementById("flagged-empty").hidden = !(flaggedOnly && n === 0);
+}
+
+function setFlaggedOnly(on, { recenter = true } = {}) {
+  if (on === flaggedOnly) return;
+  flaggedOnly = on;
+  const list = document.getElementById("seg-list");
+  list.classList.toggle("flagged-only", on);
+  updateFlaggedCount();
+  // The list just got much shorter or longer, so the old scroll offset means
+  // nothing: start the short list at its top; on the way back, stay on the
+  // segment you were working in (unless the caller is about to scroll
+  // somewhere of its own - see ensureRowVisible()).
+  if (on) list.scrollTop = 0;
+  else if (recenter && activeId && rows.get(activeId)) rows.get(activeId).el.scrollIntoView({ block: "center" });
+}
+
+function toggleFlaggedOnly() {
+  if (!flaggedOnly && !getState().segments.some((s) => s.flagged)) {
+    toast("No flagged segments.", "info");
+    return;
+  }
+  setFlaggedOnly(!flaggedOnly);
+}
+
+// Going to a segment on purpose (clicking its region, adding or merging one,
+// "Jump to latest", the error/warning buttons) while the filter hides it would
+// land on nothing you can see - so show everything first. Playback moving
+// through segments deliberately doesn't do this.
+function ensureRowVisible(id) {
+  const seg = getState().segments.find((x) => x.id === id);
+  if (seg && hiddenByFilter(seg)) setFlaggedOnly(false, { recenter: false }); // the caller scrolls to its own target
 }
 
 // ---------------------------------------------------------- rsml issues ----
@@ -1354,6 +1432,7 @@ function goToFirstIssue(kind) {
     toast(`No RSML ${kind}.`, "info");
     return;
   }
+  ensureRowVisible(hit.id);
   activate(hit.id, { focus: false });
   setActive(hit.id, { seek: true });
   scrollRowToTop(hit.id);
@@ -1363,34 +1442,52 @@ function goToFirstIssue(kind) {
 const SCROLL_TOP_GAP = 8; // px between the list's top edge and the row it was scrolled to
 
 // Smooth-scrolls #seg-list so this row's top sits just under the toolbar. Rows
-// mount their live editors as they scroll into range, which can change the
-// height of rows above the target, so a distance measured up front can be off
-// by the time the scroll lands; once it has settled, correct whatever drift is
-// left (a few times at most - the last rows can't reach the top at all, since
-// there's nothing below them to scroll into).
+// can change height while the scroll runs (editors mounting as they pass), so
+// a distance measured up front may be slightly off by the time it lands; once
+// the scroll has stopped, correct whatever drift is left (a few times at most -
+// the last rows can't reach the top at all, since there's nothing below them to
+// scroll into).
+//
+// The correction waits for the scroll to have MOVED and then STOPPED, not just
+// "not changed lately": a smooth scroll can take a second to get going when the
+// page is busy (e.g. right after a filter change re-showed the whole list), and
+// while it is in flight scrollTop and the row's position trail the real offset
+// by a few frames - at thousands of px/second that is hundreds of px of error.
+// Targets are absolute (scrollTo) rather than relative (scrollBy) for the same
+// reason.
 function scrollRowToTop(id) {
   const rec = rows.get(id);
   if (!rec) return;
   const list = document.getElementById("seg-list");
   const gap = () => rec.el.getBoundingClientRect().top - list.getBoundingClientRect().top - SCROLL_TOP_GAP;
-  if (Math.abs(gap()) > 2) list.scrollBy({ top: gap(), behavior: "smooth" });
+  const scrollToRow = () => list.scrollTo({ top: list.scrollTop + gap(), behavior: "smooth" });
+  if (Math.abs(gap()) <= 2) return;
+  scrollToRow();
 
   let corrections = 0;
   let last = list.scrollTop;
+  let moved = false;
   const started = performance.now();
-  let changedAt = started;
+  let changedAt = started; // last time scrollTop changed
+  let waitingSince = started; // when we began waiting for the scroll (or a correction) to start moving
   const watch = () => {
     const now = performance.now();
     if (list.scrollTop !== last) {
       last = list.scrollTop;
       changedAt = now;
+      moved = true;
     }
-    if (now - started > 3000) return;
-    if (now - changedAt > 160 && now - started > 250) {
-      // settled
+    if (now - started > 8000) return;
+    // Never started moving: nothing more to do (a correction that can't move -
+    // the target is past the end of the list - gets a short wait, the original
+    // scroll a generous one).
+    if (!moved && now - waitingSince > (corrections ? 400 : 3000)) return;
+    if (moved && now - changedAt > 160) {
+      // moved, and has now stopped: trust the measurements again
       if (Math.abs(gap()) > 2 && corrections++ < 3) {
-        list.scrollBy({ top: gap(), behavior: "smooth" });
-        changedAt = now;
+        scrollToRow();
+        moved = false;
+        waitingSince = now;
       } else {
         return;
       }
@@ -1458,6 +1555,7 @@ function jumpToLatest() {
   });
   const idx = Math.min(lastVerified + 1, segs.length - 1);
   const id = segs[idx].id;
+  ensureRowVisible(id);
   activate(id, { focus: false });
   setActive(id, { scroll: true, seek: true });
   focusSegmentEditor(id);
@@ -1479,6 +1577,7 @@ function wireChrome() {
   wireFontSize();
   wireRsmlDisplay();
 
+  bind("flagged-btn", toggleFlaggedOnly);
   bind("rsml-errors-btn", () => goToFirstIssue("errors"));
   bind("rsml-warnings-btn", () => goToFirstIssue("warnings"));
   bind("export-rsml-btn", () => {
@@ -1689,10 +1788,14 @@ function sweep() {
     if (!rec.active) continue;
     if (rec.seg.id === activeId) continue;
     if (rec.el.contains(document.activeElement)) continue;
-    if (distFromViewport(rec.el, vr) > KEEP_DIST) deactivate(rec.seg.id);
+    if (hiddenByFilter(rec.seg) || distFromViewport(rec.el, vr) > KEEP_DIST) deactivate(rec.seg.id);
   }
   for (const rec of rows.values()) {
     if (rec.active) continue;
+    // A display:none row measures as a zero rect at the page's top-left, which
+    // reads as "near the viewport" - without this check the sweep would mount
+    // editors for every row the filter has hidden.
+    if (hiddenByFilter(rec.seg)) continue;
     if (distFromViewport(rec.el, vr) <= ACTIVATE_DIST) activate(rec.seg.id, { focus: false });
   }
   if (changed) {

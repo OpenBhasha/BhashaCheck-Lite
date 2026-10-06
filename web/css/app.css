@@ -144,6 +144,39 @@ main > section { flex: 1; min-height: 0; }
   cursor: pointer;
 }
 .verify-toggle input { width: 15px; height: 15px; }
+/* Flagged-segment count; clicking it toggles "show only flagged segments"
+   (editor.js's setFlaggedOnly). Pressed = the filter is on. Its padding is
+   cancelled by a matching negative margin so the text lines up with the
+   toolbar's other counters while the pressed pill still has room to breathe. */
+.flagged-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  margin: 0 -6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: default;
+}
+.flagged-btn.has-flagged { color: var(--warn); font-weight: 600; cursor: pointer; }
+.flagged-btn.has-flagged:hover { border-color: var(--warn); }
+.flagged-btn[aria-pressed="true"] {
+  color: var(--warn);
+  font-weight: 600;
+  cursor: pointer;
+  background: #fff3df;
+  border-color: var(--warn);
+}
+/* The filter itself: hide every row that isn't flagged, and the add-segment /
+   merge-with-next controls between rows (they would act across hidden
+   neighbours). Flagging or unflagging a row toggles its .flagged class, so the
+   list reacts with no re-render. */
+.seg-list.flagged-only .seg-row:not(.flagged),
+.seg-list.flagged-only .seg-gap { display: none; }
+
 /* Total RSML errors and warnings across every segment; with any, each is a
    button that jumps to the first of its kind (editor.js's goToFirstIssue).
    Errors read green at zero (all clear); warnings read muted at zero, since

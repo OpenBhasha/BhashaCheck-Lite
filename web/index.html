@@ -77,6 +77,10 @@
             <input type="checkbox" id="verify-all" />
             <span><span id="verify-count">0 / 0</span> verified</span>
           </label>
+          <button type="button" id="flagged-btn" class="flagged-btn" aria-pressed="false">
+            <i class="bi bi-flag"></i>
+            <span id="flagged-label">0 flagged</span>
+          </button>
           <button type="button" id="rsml-errors-btn" class="rsml-errors-btn" hidden>
             <i class="bi bi-check-circle-fill"></i>
             <span id="rsml-errors-label">0 RSML errors</span>
@@ -106,6 +110,9 @@
 
         <p id="editor-empty" class="editor-empty" hidden>
           No segments yet. Drag on the waveform below to create one.
+        </p>
+        <p id="flagged-empty" class="editor-empty" hidden>
+          No flagged segments. Click the flagged count in the toolbar to show every segment again.
         </p>
 
         <div id="seg-list" class="seg-list"></div>
