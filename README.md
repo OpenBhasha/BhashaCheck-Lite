@@ -95,9 +95,22 @@ constant, `BHASHACHECK_VERSION` in `web/js/version.js` - bump it there, and only
 there.
 
 The **RSML version** is the version of the [`rsml`](https://www.npmjs.com/package/rsml)
-library the app loads. Every module imports it from `web/js/rsmlLib.js`, the one
-place that names it - upgrade it there (the import URL and `RSML_VERSION` sit
-side by side, and both change together).
+library the app is running, and it follows npm's **latest release automatically**:
+at startup the app asks the npm registry for `rsml`'s latest version and loads
+that exact version from jsDelivr, so a new release reaches the app with no
+change here. Every module gets the library from `web/js/rsmlLib.js`, which does
+this. If the lookup or the load fails (offline, registry blocked or slow - it
+waits at most 3 seconds - or the new version isn't on the CDN yet) it falls back
+to the last version that loaded in this browser, then to a known-good version
+(`FALLBACK_VERSION` in that file), so the app still starts and still works
+offline once it has loaded before.
+
+Following latest means a release can change behavior: `rsml` 3.3.4, for
+example, changed the library's *default* tag set (no more `@silence` / `@pause`
+defaults; `high-pitch` / `low-pitch` added). A project with a saved tag set keeps
+it; one that has never customized its tags follows the library's defaults. If a
+release breaks something, set `PINNED_VERSION` in `rsmlLib.js` to stop following
+latest.
 
 Every exported `.rsml` file records both in its `[versions]` section, so a
 reader (a person, or a pipeline such as the aligner) can tell which version of
@@ -125,7 +138,9 @@ configure server-side.
 ## Notes
 
 - Internet is needed on first load for Bootstrap, `rsml`, CodeMirror, and
-  WaveSurfer (all from jsDelivr, cached by the browser afterward), and again
+  WaveSurfer (all from jsDelivr, cached by the browser afterward - and each
+  load also asks the npm registry which `rsml` version is latest, falling back to
+  the cached one if it can't), and again
   the first time you click "Continue manually" (the VAD model + ONNX runtime
   WASM, also cached afterward).
 - No accounts, no server-side storage: a project lives entirely in the
