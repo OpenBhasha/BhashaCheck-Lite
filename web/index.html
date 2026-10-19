@@ -274,6 +274,46 @@
 
     <div id="toast-area" class="toast-area"></div>
 
+    <!-- MathJax renders $...$ (inline) and $$...$$ (display) in the segment
+         previews. Config first (MathJax reads window.MathJax when it loads), and
+         no automatic page typeset: js/math.js typesets each preview pane itself,
+         right after the rsml library re-renders it. -->
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [["$", "$"]],
+          displayMath: [["$$", "$$"]],
+          processEscapes: true, // \$ is a literal dollar sign
+        },
+        options: {
+          // Plain rendering only. The right-click menu, speech/braille
+          // enrichment (and its web worker) and the keyboard explorer are off:
+          // they put every formula in the Tab order, which would fight this
+          // app's own Tab / Shift+Tab segment navigation, and cost a lot of
+          // extra downloading for a transcript preview. Screen readers still
+          // get each formula as MathML.
+          enableMenu: false,
+          enableEnrichment: false,
+          enableSpeech: false,
+          enableBraille: false,
+          enableExplorer: false,
+          // The menu's saved settings win over the switches above when they
+          // disagree, so say it there too (assistiveMml is what turns the
+          // screen-reader MathML on).
+          menuOptions: {
+            settings: { enrich: false, speech: false, braille: false, inTabOrder: false, assistiveMml: true },
+          },
+        },
+        a11y: { speech: false, braille: false },
+        startup: { typeset: false },
+      };
+    </script>
+    <script
+      id="mathjax-script"
+      async
+      src="https://cdn.jsdelivr.net/npm/mathjax@4.1.3/tex-svg.js"
+      onerror="window.mathJaxFailed = true"
+    ></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0/dist/js/select2.min.js"></script>

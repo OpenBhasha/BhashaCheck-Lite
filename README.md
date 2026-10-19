@@ -92,6 +92,26 @@ but leaves the project's own settings and tag set untouched, and says so. Files
 exported by earlier builds of this app (SRTs with per-cue `speakers=` fields,
 or with the config written as an extra last cue) still import.
 
+## Math
+
+Math goes in the `(normalized)` part of a tag - the round brackets - wrapped in
+dollar signs, and the segment preview draws it with
+[MathJax](https://www.mathjax.org/): `[two x squared]($2x^2$)` shows `2x²` (and
+the verbatim `two x squared` in Verbatim mode). `$...$` is inline; `$$...$$` is a
+centred display equation. Write `\$` for a literal dollar sign. Only the preview
+changes - the transcript, the saved text and exports stay exactly what you
+typed.
+
+Nothing outside the round brackets is rendered: plain prose and the `[verbatim]`
+half keep their `$` as typed. That is where RSML keeps special characters (the
+`rsml` validator flags a stray `$` anywhere else), and it keeps `$` free to mean
+what it already means in RSML - an accent (`$en[text](normalized)`) or, doubled, a
+dialect (`$$TG[text](normalized)`). Each pair of brackets is typeset on its own,
+so an expression never reaches across two tags. The round brackets still have to
+balance for RSML to read the tag at all, so an expression with a lone `(` or `)`
+in it (a half-open interval like `[0,1)`) isn't read as a tag, and nothing in it
+is rendered.
+
 ## Versioning
 
 BhashaCheck uses semantic versioning (`MAJOR.MINOR.PATCH`); the current version
@@ -157,8 +177,8 @@ configure server-side.
 
 ## Notes
 
-- Internet is needed on first load for Bootstrap, `rsml`, CodeMirror, and
-  WaveSurfer (all from jsDelivr, cached by the browser afterward - and each
+- Internet is needed on first load for Bootstrap, `rsml`, CodeMirror, MathJax,
+  and WaveSurfer (all from jsDelivr, cached by the browser afterward - and each
   load also asks the npm registry which `rsml` version is latest, falling back to
   the cached one if it can't), and again
   the first time you click "Continue manually" (the VAD model + ONNX runtime

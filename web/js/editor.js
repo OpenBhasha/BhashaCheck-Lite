@@ -23,6 +23,7 @@ import * as wf from "./waveform.js";
 import { buildRSML, buildSRT, downloadRSML, downloadSRT } from "./srt.js";
 import { buildExportConfig } from "./exportConfig.js";
 import { speakerLabel, openSpeakerModal, defaultSpeakerId } from "./speakers.js";
+import { watchMath, clearMath } from "./math.js";
 
 const ACTIVATE_MARGIN = "600px"; // IntersectionObserver rootMargin
 const ACTIVATE_DIST = 500; // px from the scroll viewport within which the sweep also activates
@@ -489,6 +490,7 @@ function setCollapsed(rec) {
   rec.host.innerHTML = "";
   rec.host.appendChild(p);
   rec.plainEl = p;
+  clearMath(rec.output);
   rec.output.textContent = rec.seg.rsml || "";
 }
 
@@ -524,6 +526,7 @@ function activate(id, { focus }) {
     rec.annotator = new RSMLAnnotator({ textarea: ta, output: rec.output, ...(getState().rsmlConfig || {}) });
     patchCompletions(rec.annotator);
     patchStatusAlwaysVisible(rec.annotator);
+    watchMath(rec.annotator);
     applyGlobalRsmlDisplay(rec.annotator);
   } catch (err) {
     console.warn("RSMLAnnotator failed, plain textarea fallback", err);
