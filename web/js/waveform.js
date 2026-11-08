@@ -26,7 +26,10 @@ let viewEnd = 0;
 const REGION_COLOR = "rgba(91,60,196,0.12)";
 // Speaker hue stays visible regardless of review status.
 function regionColorFor(seg) {
-  return speakerColor(seg.speaker, 0.2);
+  if (Number.isSafeInteger(seg.speaker) && seg.speaker > 1) return speakerColor(seg.speaker, 0.2);
+  if (seg.flagged) return "rgba(178,106,0,0.2)";
+  if (seg.verified) return "rgba(31,157,100,0.2)";
+  return REGION_COLOR;
 }
 
 function applyRegionStatus(region, seg) {
