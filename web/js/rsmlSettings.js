@@ -350,7 +350,7 @@ function buildMapBody(key, annotator, deps, rerender) {
 // add()/remove() at all.
 
 function buildAccentsCategory(deps) {
-  const { getState } = deps;
+  const { getState, scheduleSave, refreshTagDefaults } = deps;
 
   const det = document.createElement("details");
   det.className = "rsml-cat";
@@ -369,9 +369,25 @@ function buildAccentsCategory(deps) {
   const body = document.createElement("div");
   det.appendChild(body);
 
+  const resetBtn = document.createElement("button");
+  resetBtn.type = "button";
+  resetBtn.className = "btn btn-sm btn-link rsml-reset";
+  resetBtn.textContent = "Reset to defaults";
+  resetBtn.onclick = () => {
+    if (!confirm("Clear all custom accents and the default accent for this project?")) return;
+    const state = getState();
+    state.accents = {};
+    state.defaultAccent = null;
+    scheduleSave();
+    rerender();
+    refreshTagDefaults();
+  };
+  det.appendChild(resetBtn);
+
   const rerender = () => {
     const map = getState().accents || {};
     countEl.textContent = Object.keys(map).length;
+    resetBtn.disabled = !Object.keys(map).length && !getState().defaultAccent;
     body.innerHTML = "";
     body.appendChild(buildAccentsBody(deps, rerender));
   };

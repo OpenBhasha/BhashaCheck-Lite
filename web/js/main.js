@@ -447,7 +447,7 @@ function wireHeader() {
   const drawer = document.getElementById("settings-drawer");
   const backdrop = document.getElementById("settings-backdrop");
   const open = () => {
-    renderCodeMixDefault(document.getElementById("language-defaults-panel"), { getState, scheduleSave, escapeHtml });
+    refreshTagDefaults();
     drawer.hidden = false;
     backdrop.hidden = false;
   };
@@ -554,6 +554,10 @@ async function rehydrate() {
   return true;
 }
 
+function refreshTagDefaults() {
+  renderCodeMixDefault(document.getElementById("language-defaults-panel"), { getState, scheduleSave, escapeHtml });
+}
+
 // Rebuilds every settings-drawer panel (RSML tags, language defaults, speaker
 // roster) against whatever project is current right now. Called once at
 // boot, and again any time `state` is wholesale-replaced (a new audio upload
@@ -572,14 +576,10 @@ function syncSettingsPanels() {
     scheduleSave,
     toast,
     escapeHtml,
+    refreshTagDefaults,
     applyToOpenRows: (...args) => import("./editor.js").then((m) => m.applyRsmlChange(...args)),
   });
-  renderCodeMixDefault(document.getElementById("language-defaults-panel"), {
-    getState,
-    scheduleSave,
-    toast,
-    escapeHtml,
-  });
+  refreshTagDefaults();
   renderSpeakerSettings(document.getElementById("speaker-roster-panel"), {
     getState,
     scheduleSave,
